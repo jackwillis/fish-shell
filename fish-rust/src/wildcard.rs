@@ -1212,7 +1212,7 @@ pub fn wildcard_match(
 // Check if the string has any unescaped wildcards (e.g. ANY_STRING).
 #[inline]
 #[must_use]
-fn wildcard_has_internal(s: impl AsRef<wstr>) -> bool {
+pub fn wildcard_has_internal(s: impl AsRef<wstr>) -> bool {
     s.as_ref()
         .chars()
         .any(|c| matches!(c, ANY_STRING | ANY_STRING_RECURSIVE | ANY_CHAR))
@@ -1220,7 +1220,7 @@ fn wildcard_has_internal(s: impl AsRef<wstr>) -> bool {
 
 /// Check if the specified string contains wildcards (e.g. *).
 #[must_use]
-fn wildcard_has(s: impl AsRef<wstr>) -> bool {
+pub fn wildcard_has(s: impl AsRef<wstr>) -> bool {
     let s = s.as_ref();
     let qmark_is_wild = !feature_test(FeatureFlag::qmark_noglob);
     // Fast check for * or ?; if none there is no wildcard.
@@ -1268,12 +1268,8 @@ mod ffi {
     }
 
     extern "Rust" {
-        #[cxx_name = "wildcard_match_ffi"]
-        fn wildcard_match_ffi(
-            str: &CxxWString,
-            wc: &CxxWString,
-            leading_dots_fail_to_match: bool,
-        ) -> bool;
+        #[cxx_name = "wildcard_match"]
+        fn wildcard_match_ffi(str: &CxxWString, wc: &CxxWString) -> bool;
 
         #[cxx_name = "wildcard_has"]
         fn wildcard_has_ffi(s: &CxxWString) -> bool;
@@ -1283,8 +1279,12 @@ mod ffi {
     }
 }
 
-fn wildcard_match_ffi(str: &CxxWString, wc: &CxxWString, leading_dots_fail_to_match: bool) -> bool {
-    wildcard_match(str.from_ffi(), wc.from_ffi(), leading_dots_fail_to_match)
+fn wildcard_match_ffi(str: &CxxWString, wc: &CxxWString) -> bool {
+    wildcard_match(
+        str.from_ffi(),
+        wc.from_ffi(),
+        /*leading_dots_fail_to_match*/ false,
+    )
 }
 
 fn wildcard_has_ffi(s: &CxxWString) -> bool {

@@ -18,9 +18,15 @@ use crate::flog::FLOGF;
 use crate::wchar::{wstr, WString, L};
 use crate::wchar_ext::WExt;
 use crate::wcstringutil::{join_strings, split_string, wcs2string_callback};
+use errno::{errno, set_errno, Errno};
 pub(crate) use gettext::{wgettext, wgettext_fmt, wgettext_str};
+use libc::{
+    DT_BLK, DT_CHR, DT_DIR, DT_FIFO, DT_LNK, DT_REG, DT_SOCK, EACCES, EIO, ELOOP, ENAMETOOLONG,
+    ENODEV, ENOENT, ENOTDIR, F_GETFL, F_SETFL, O_NONBLOCK, S_IFBLK, S_IFCHR, S_IFDIR, S_IFIFO,
+    S_IFLNK, S_IFMT, S_IFREG, S_IFSOCK,
+};
 pub(crate) use printf::sprintf;
-use std::ffi::OsStr;
+use std::ffi::{CStr, CString, OsStr};
 use std::fs::{self, canonicalize};
 use std::io::{self, Write};
 use std::os::unix::prelude::*;
@@ -66,7 +72,7 @@ pub fn wperror(s: &wstr) {
 
 /// Port of the wide-string wperror from `src/wutil.cpp` but for rust `&str`.
 pub fn perror(s: &str) {
-    let e = errno::errno().0;
+    let e = errno().0;
     let mut stderr = std::io::stderr().lock();
     if !s.is_empty() {
         let _ = write!(stderr, "{s}: ");
@@ -100,10 +106,42 @@ pub fn wgetcwd() -> WString {
     FLOGF!(
         error,
         "getcwd() failed with errno %d/%s",
-        errno::errno().0,
-        "errno::errno"
+        errno().0,
+        "errno"
     );
     WString::new()
+}
+
+pub fn make_fd_nonblocking(fd: RawFd) -> libc::c_int {
+    unsafe {
+        let flags = libc::fcntl(fd, F_GETFL, 0);
+        let mut err = 0;
+        let nonblocking = (flags & O_NONBLOCK) != 0;
+        if !nonblocking {
+            err = libc::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        }
+        if err == -1 {
+            errno().0
+        } else {
+            0
+        }
+    }
+}
+
+pub fn make_fd_blocking(fd: RawFd) -> libc::c_int {
+    unsafe {
+        let flags = libc::fcntl(fd, F_GETFL, 0);
+        let mut err = 0;
+        let nonblocking = (flags & O_NONBLOCK) != 0;
+        if nonblocking {
+            err = libc::fcntl(fd, F_SETFL, flags & !O_NONBLOCK);
+        }
+        if err == -1 {
+            errno().0
+        } else {
+            0
+        }
+    }
 }
 
 /// Wide character version of readlink().
@@ -574,15 +612,17 @@ pub fn file_id_for_autoclose_fd(fd: &AutoCloseFd) -> FileId {
 }
 
 pub fn file_id_for_path(path: &wstr) -> FileId {
+    file_id_for_path_narrow(&wcs2zstring(path))
+}
+
+pub fn file_id_for_path_narrow(path: &CStr) -> FileId {
     let mut result = INVALID_FILE_ID;
-    let path = wcs2zstring(path);
     let mut buf: libc::stat = unsafe { std::mem::zeroed() };
     if unsafe { libc::stat(path.as_ptr(), &mut buf) } == 0 {
         result = FileId::from_stat(&buf);
     }
     result
 }
-
 /// Given that \p cursor is a pointer into \p base, return the offset in characters.
 /// This emulates C pointer arithmetic:
 ///    `wstr_offset_in(cursor, base)` is equivalent to C++ `cursor - base`.

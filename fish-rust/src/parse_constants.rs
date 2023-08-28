@@ -1,6 +1,7 @@
 //! Constants used in the programmatic representation of fish code.
 
 use crate::fallback::{fish_wcswidth, fish_wcwidth};
+use crate::ffi::wcharz_t;
 use crate::tokenizer::variable_assignment_equals_pos;
 use crate::wchar::prelude::*;
 use crate::wchar_ffi::wcharz_t;
@@ -15,6 +16,7 @@ pub const SOURCE_OFFSET_INVALID: usize = SourceOffset::MAX as _;
 pub const SOURCE_LOCATION_UNKNOWN: usize = usize::MAX;
 
 bitflags! {
+    #[derive(Default)]
     pub struct ParseTreeFlags: u8 {
         /// attempt to build a "parse tree" no matter what. this may result in a 'forest' of
         /// disconnected trees. this is intended to be used by syntax highlighting.
@@ -109,6 +111,7 @@ mod parse_constants_ffi {
     }
 
     // Statement decorations like 'command' or 'exec'.
+    #[derive(Clone, Copy, Eq, PartialEq)]
     pub enum StatementDecoration {
         none,
         command,
@@ -244,6 +247,12 @@ impl SourceRange {
     }
     fn contains_inclusive_ffi(&self, loc: u32) -> bool {
         self.start <= loc && loc - self.start <= self.length
+    }
+}
+
+impl From<SourceRange> for std::ops::Range<usize> {
+    fn from(value: SourceRange) -> Self {
+        value.start()..value.end()
     }
 }
 
