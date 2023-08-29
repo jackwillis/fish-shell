@@ -645,6 +645,9 @@ impl IoChain {
             !std::ptr::eq(e, element)
         });
     }
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
     pub fn push(&mut self, element: IoDataRef) {
         self.0.push(element);
     }
