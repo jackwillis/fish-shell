@@ -153,6 +153,10 @@ commandline_state_t commandline_get_state() {
     return state;
 }
 
+HistorySharedPtr *commandline_get_state_history_ffi() {
+    return commandline_get_state().history->into_raw();
+}
+
 void commandline_set_buffer(wcstring text, size_t cursor_pos) {
     auto state = commandline_state_snapshot();
     state->cursor_pos = std::min(cursor_pos, text.size());

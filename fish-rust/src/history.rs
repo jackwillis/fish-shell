@@ -2171,7 +2171,7 @@ fn rust_history_item_new(
     Box::new(HistoryItem::new(s, when, ident, persist_mode))
 }
 
-struct HistorySharedPtr(Arc<History>);
+pub struct HistorySharedPtr(pub Arc<History>);
 
 impl HistorySharedPtr {
     fn is_default(&self) -> bool {

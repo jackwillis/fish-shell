@@ -285,6 +285,8 @@ struct commandline_state_t {
 /// Get the command line state. This may be fetched on a background thread.
 commandline_state_t commandline_get_state();
 
+HistorySharedPtr *commandline_get_state_history_ffi();
+
 /// Set the command line text and position. This may be called on a background thread; the reader
 /// will pick it up when it is done executing.
 void commandline_set_buffer(wcstring text, size_t cursor_pos = -1);

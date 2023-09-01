@@ -89,6 +89,7 @@ include_cpp! {
     generate!("rgb_color_t")
     generate_pod!("color24_t")
     generate!("reader_status_count")
+    generate!("commandline_get_state_history_ffi")
 
     generate!("get_history_variable_text_ffi")
 

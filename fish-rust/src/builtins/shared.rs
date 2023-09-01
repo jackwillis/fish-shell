@@ -615,7 +615,7 @@ pub fn builtin_missing_argument(
     streams: &mut IoStreams<'_>,
     cmd: &wstr,
     mut opt: &wstr,
-    print_hints: bool,
+    print_hints: bool, /*=true*/
 ) {
     if opt.chars().take(2).any(|c| c == '-') {
         // if c in -qc '-qc' is missing the argument, now opt is just 'c'
