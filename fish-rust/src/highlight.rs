@@ -106,7 +106,7 @@ pub fn highlight_shell(
     buff: &wstr,
     color: &mut Vec<HighlightSpec>,
     ctx: &OperationContext<'_>,
-    io_ok: bool,
+    io_ok: bool, /* = false */
     cursor: Option<usize>,
 ) {
     let working_directory = ctx.vars().get_pwd_slash();

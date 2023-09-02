@@ -969,7 +969,7 @@ impl<'a> NodeVisitor<'a> for IndentVisitor<'a> {
 pub fn parse_util_detect_errors(
     buff_src: &wstr,
     mut out_errors: Option<&mut ParseErrorList>,
-    allow_incomplete: bool,
+    allow_incomplete: bool, /*=false*/
 ) -> Result<(), ParserTestErrorBits> {
     // Whether there's an unclosed quote or subshell, and therefore unfinished. This is only set if
     // allow_incomplete is set.

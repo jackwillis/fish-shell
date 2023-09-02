@@ -90,6 +90,9 @@ include_cpp! {
     generate_pod!("color24_t")
     generate!("reader_status_count")
     generate!("commandline_get_state_history_ffi")
+    generate!("commandline_get_state_initialized_ffi")
+    generate!("commandline_get_state_text_ffi")
+    generate!("completion_apply_to_command_line")
 
     generate!("get_history_variable_text_ffi")
 

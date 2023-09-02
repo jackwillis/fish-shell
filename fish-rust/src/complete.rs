@@ -85,14 +85,14 @@ fn C_(s: &wstr) -> &'static wstr {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct CompletionMode {
     /// If set, skip file completions.
-    no_files: bool,
-    force_files: bool,
+    pub no_files: bool,
+    pub force_files: bool,
 
     /// If set, require a parameter after completion.
-    requires_param: bool,
+    pub requires_param: bool,
 }
 
 /// Character that separates the completion and description on programmable completions.

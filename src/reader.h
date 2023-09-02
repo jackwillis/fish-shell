@@ -286,6 +286,8 @@ struct commandline_state_t {
 commandline_state_t commandline_get_state();
 
 HistorySharedPtr *commandline_get_state_history_ffi();
+bool commandline_get_state_initialized_ffi();
+wcstring commandline_get_state_text_ffi();
 
 /// Set the command line text and position. This may be called on a background thread; the reader
 /// will pick it up when it is done executing.

@@ -157,6 +157,12 @@ HistorySharedPtr *commandline_get_state_history_ffi() {
     return commandline_get_state().history->into_raw();
 }
 
+bool commandline_get_state_initialized_ffi() { return commandline_get_state().initialized; }
+wcstring commandline_get_state_text_ffi() {
+    // return std::make_unique<wcstring>(commandline_get_state().text);
+    return std::move(commandline_get_state().text);
+}
+
 void commandline_set_buffer(wcstring text, size_t cursor_pos) {
     auto state = commandline_state_snapshot();
     state->cursor_pos = std::min(cursor_pos, text.size());

@@ -599,7 +599,7 @@ pub fn builtin_unknown_option(
     streams: &mut IoStreams<'_>,
     cmd: &wstr,
     opt: &wstr,
-    print_hints: bool,
+    print_hints: bool, /*=true*/
 ) {
     streams
         .err
