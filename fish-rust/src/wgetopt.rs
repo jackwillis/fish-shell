@@ -313,6 +313,7 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
                 && (self.argv[self.woptind].char_at(0) != '-' || self.argv[self.woptind].len() == 1)
             {
                 self.woptind += 1;
+                self.nextchar_slice = 0..0;
             }
             self.last_nonopt = self.woptind;
         }
@@ -330,6 +331,7 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
             }
             self.last_nonopt = argc;
             self.woptind = argc;
+            self.nextchar_slice = 0..0;
         }
 
         // If we have done all the ARGV-elements, stop the scan and back over any non-options that
@@ -340,6 +342,7 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
             // caller will digest them.
             if self.first_nonopt != self.last_nonopt {
                 self.woptind = self.first_nonopt;
+                self.nextchar_slice = 0..0;
             }
             return None;
         }
@@ -352,6 +355,7 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
             }
             self.woptarg_idx = Some((self.woptind, 0));
             self.woptind += 1;
+            self.nextchar_slice = 0..0;
             return Some(NONOPTION_CHAR_CODE);
         }
 
@@ -437,11 +441,11 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
         option_index: usize,
         retval: &mut char,
     ) {
+        let nextchar = self.nextchar().to_owned();
+        self.nextchar_slice = 0..0;
         self.woptind += 1;
-        assert!(
-            self.nextchar().char_at(nameend) == '\0' || self.nextchar().char_at(nameend) == '='
-        );
-        if self.nextchar().char_at(nameend) == '=' {
+        assert!(nextchar.char_at(nameend) == '\0' || nextchar.char_at(nameend) == '=');
+        if nextchar.char_at(nameend) == '=' {
             if pfound.has_arg != woption_argument_t::no_argument {
                 self.woptarg_idx = Some((self.woptind, nameend + 1));
             } else {
@@ -452,9 +456,9 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
         } else if pfound.has_arg == woption_argument_t::required_argument {
             if self.woptind < self.argc() {
                 self.woptarg_idx = Some((self.woptind, 0));
+                self.nextchar_slice = 0..0;
                 self.woptind += 1;
             } else {
-                self.nextchar_slice = 0..0;
                 *retval = if self.missing_arg_return_colon {
                     ':'
                 } else {
