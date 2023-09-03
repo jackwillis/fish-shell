@@ -307,7 +307,7 @@ pub struct Parser {
     base: SharedFromThisBase<Parser>,
 
     /// The current execution context.
-    execution_context: RefCell<Option<Box<ParseExecutionContext>>>,
+    execution_context: Box<ParseExecutionContext>,
 
     /// The jobs associated with this parser.
     job_list: RefCell<JobList>,
@@ -345,6 +345,10 @@ pub struct Parser {
     pub global_event_blocks: AtomicU64,
 }
 
+// Safety: todo!("safety: rationalize why execution_context is safe");
+unsafe impl Send for Parser {}
+unsafe impl Sync for Parser {}
+
 impl SharedFromThis<Parser> for Parser {
     fn get_base(&self) -> &SharedFromThisBase<Parser> {
         &self.base
@@ -357,7 +361,7 @@ impl Parser {
         let variables_ffi = EnvStackRefFFI(variables.clone());
         let mut result = Arc::new(Self {
             base: SharedFromThisBase::new(),
-            execution_context: RefCell::new(None),
+            execution_context: Box::new(ParseExecutionContext::default()),
             job_list: RefCell::new(vec![]),
             wait_handles: RefCell::new(WaitHandleStore::new()),
             block_list: RefCell::new(vec![]),
@@ -379,6 +383,14 @@ impl Parser {
         result.base.initialize(&result);
         result
     }
+
+    fn execution_context(&self) -> Option<&ParseExecutionContext> {
+        self.execution_context
+            .is_valid
+            .get()
+            .then(|| self.execution_context.as_ref())
+    }
+
     /// Adds a job to the beginning of the job list.
     pub fn job_add(&self, job: JobRef) {
         assert!(!job.processes().is_empty());
@@ -564,24 +576,17 @@ impl Parser {
         // Create and set a new execution context.
         let mut zelf = scoped_push_replacer(
             self,
-            |zelf, new_value| {
-                std::mem::replace(&mut zelf.execution_context.borrow_mut(), new_value)
-            },
-            Some(Box::new(ParseExecutionContext::new(
-                ps.clone(),
-                block_io.clone(),
-            ))),
+            |zelf, new_value| ParseExecutionContext::replace(&zelf.execution_context, new_value),
+            Box::new(ParseExecutionContext::new(ps.clone(), block_io.clone())),
         );
 
         // Check the exec count so we know if anything got executed.
         let prev_exec_count = zelf.libdata().pods.exec_count;
         let prev_status_count = zelf.libdata().pods.status_count;
-        let reason = zelf
-            .execution_context
-            .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .eval_node(&mut op_ctx, node, Some(scope_block));
+        let reason =
+            zelf.execution_context()
+                .unwrap()
+                .eval_node(&mut op_ctx, node, Some(scope_block));
         let new_exec_count = zelf.libdata().pods.exec_count;
         let new_status_count = zelf.libdata().pods.status_count;
 
@@ -639,13 +644,11 @@ impl Parser {
     ///
     /// init.fish (line 127): ls|grep pancake
     pub fn current_line(&self) -> WString {
-        if self.execution_context.borrow().is_none() {
+        if self.execution_context().is_none() {
             return WString::new();
         };
         let Some(source_offset) = self
-            .execution_context
-            .borrow_mut()
-            .as_mut()
+            .execution_context()
             .unwrap()
             .get_current_source_offset()
         else {
@@ -685,11 +688,7 @@ impl Parser {
         empty_error.source_start = source_offset;
 
         let mut line_info = empty_error.describe_with_prefix(
-            self.execution_context
-                .borrow()
-                .as_ref()
-                .unwrap()
-                .get_source(),
+            &self.execution_context().unwrap().get_source(),
             &prefix,
             self.is_interactive(),
             skip_caret,
@@ -704,10 +703,8 @@ impl Parser {
 
     /// Returns the current line number.
     pub fn get_lineno(&self) -> Option<usize> {
-        self.execution_context
-            .borrow_mut()
-            .as_mut()
-            .and_then(|exctx| exctx.get_current_line_number())
+        self.execution_context()
+            .and_then(|ctx| ctx.get_current_line_number())
     }
 
     /// \return whether we are currently evaluating a "block" such as an if statement.
@@ -830,9 +827,11 @@ impl Parser {
 
     /// Remove the outermost block, asserting it's the given one.
     pub fn pop_block(&self, expected: BlockId) {
-        let mut block_list = self.block_list.borrow_mut();
-        assert!(expected == block_list.len() - 1);
-        let block = block_list.pop().unwrap();
+        let block = {
+            let mut block_list = self.block_list.borrow_mut();
+            assert!(expected == block_list.len() - 1);
+            block_list.pop().unwrap()
+        };
         if block.wants_pop_env {
             self.vars().pop();
         }

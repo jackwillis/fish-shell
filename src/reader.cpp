@@ -4721,6 +4721,7 @@ static int read_ni(const parser_t &parser, int fd, const io_chain_t &io) {
     if (fstat(fd, &buf) == -1) {
         int err = errno;
         FLOGF(error, _(L"Unable to read input file: %s"), strerror(err));
+        assert(false);
         return 1;
     }
 
@@ -4729,6 +4730,7 @@ static int read_ni(const parser_t &parser, int fd, const io_chain_t &io) {
     // This can be seen e.g. with node's "spawn" api.
     if (fd != STDIN_FILENO && buf.st_mode & S_IFDIR) {
         FLOGF(error, _(L"Unable to read input file: %s"), strerror(EISDIR));
+        assert(false);
         return 1;
     }
 
@@ -4754,6 +4756,7 @@ static int read_ni(const parser_t &parser, int fd, const io_chain_t &io) {
             } else {
                 // Fatal error.
                 FLOGF(error, _(L"Unable to read input file: %s"), strerror(err));
+                assert(false);
                 // Reset buffer on error. We won't evaluate incomplete files.
                 fd_contents.clear();
                 return 1;

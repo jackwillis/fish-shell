@@ -54,8 +54,7 @@ pub fn r#return(
         Err(e) => return e,
     };
 
-    let blocks = parser.blocks();
-    let has_function_block = blocks.iter().any(|b| b.is_function_call());
+    let has_function_block = parser.blocks().iter().any(|b| b.is_function_call());
 
     // *nix does not support negative return values, but our `return` builtin happily accepts being
     // called with negative literals (e.g. `return -1`).

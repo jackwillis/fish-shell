@@ -56,6 +56,7 @@ use errno::Errno;
 use libc::{
     c_int, pselect, ENOENT, ENOTDIR, EXIT_SUCCESS, STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO,
 };
+use std::cell::{Cell, Ref, RefCell};
 use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -78,24 +79,38 @@ pub enum EndExecutionReason {
     error,
 }
 
+#[derive(Default)]
 pub struct ParseExecutionContext {
-    pstree: ParsedSourceRef,
+    pub is_valid: Cell<bool>,
+
+    pub pstree: RefCell<Option<ParsedSourceRef>>,
 
     // If set, one of our processes received a cancellation signal (INT or QUIT) so we are
     // unwinding.
-    cancel_signal: Option<Signal>,
+    cancel_signal: RefCell<Option<Signal>>,
 
     // The currently executing job node, used to indicate the line number.
-    // todo!("later: use NonNull instead?");
-    executing_job_node: Option<ConstPointer<ast::JobPipeline>>,
+    // todo!("later: use NonNull instead of ConstPointer?");
+    executing_job_node: RefCell<Option<ConstPointer<ast::JobPipeline>>>,
 
     // Cached line number information.
-    cached_lineno_offset: usize,
-    cached_lineno_count: usize,
+    cached_lineno: RefCell<std::ops::Range<usize>>,
 
     /// The block IO chain.
     /// For example, in `begin; foo ; end < file.txt` this would have the 'file.txt' IO.
-    block_io: IoChain,
+    block_io: RefCell<IoChain>,
+}
+
+impl ParseExecutionContext {
+    pub fn replace(left: &Box<Self>, right: Box<Self>) -> Box<Self> {
+        left.is_valid.swap(&right.is_valid);
+        left.pstree.swap(&right.pstree);
+        left.cancel_signal.swap(&right.cancel_signal);
+        left.executing_job_node.swap(&right.executing_job_node);
+        left.cached_lineno.swap(&right.cached_lineno);
+        left.block_io.swap(&right.block_io);
+        right
+    }
 }
 
 // Report an error, setting $status to \p status. Always returns
@@ -123,42 +138,46 @@ impl<'a> ParseExecutionContext {
     /// The execution context may access the parser and parent job group (if any) through ctx.
     pub fn new(pstree: ParsedSourceRef, block_io: IoChain) -> Self {
         Self {
-            pstree,
-            cancel_signal: None,
-            executing_job_node: None,
-            cached_lineno_offset: 0,
-            cached_lineno_count: 0,
-            block_io,
+            is_valid: Cell::new(true),
+            pstree: RefCell::new(Some(pstree)),
+            cancel_signal: RefCell::default(),
+            executing_job_node: RefCell::default(),
+            cached_lineno: RefCell::new(0..0),
+            block_io: RefCell::default(),
         }
     }
 
-    /// Returns the current line number, indexed from 1. Not const since it touches
-    /// cached_lineno_offset.
-    pub fn get_current_line_number(&mut self) -> Option<usize> {
+    fn pstree(&self) -> Ref<'_, ParsedSourceRef> {
+        Ref::map(self.pstree.borrow(), |o| o.as_ref().unwrap())
+    }
+
+    /// Returns the current line number, indexed from 1. Updates cached line ranges.
+    pub fn get_current_line_number(&self) -> Option<usize> {
         let line_offset = self.line_offset_of_executing_node()?;
         // The offset is 0 based; the number is 1 based.
         Some(line_offset + 1)
     }
 
     /// Returns the source offset, or -1.
-    pub fn get_current_source_offset(&mut self) -> Option<usize> {
+    pub fn get_current_source_offset(&self) -> Option<usize> {
         self.executing_job_node
+            .borrow()
             .and_then(|job| job.try_source_range())
             .map(|range| range.start())
     }
 
     /// Returns the source string.
-    pub fn get_source(&self) -> &wstr {
-        &self.pstree.src
+    pub fn get_source(&self) -> Ref<'_, WString> {
+        Ref::map(self.pstree(), |ps| &ps.src)
     }
 
     /// Return the parsed ast.
-    pub fn ast(&self) -> &Ast {
-        &self.pstree.ast
+    pub fn ast(&self) -> Ref<'_, Ast> {
+        Ref::map(self.pstree(), |ps| &ps.ast)
     }
 
     pub fn eval_node(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         node: &dyn Node,
         associated_block: Option<BlockId>,
@@ -177,7 +196,7 @@ impl<'a> ParseExecutionContext {
     /// Start executing at the given node. Returns 0 if there was no error, 1 if there was an
     /// error.
     fn eval_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         statement: &'a ast::Statement,
         associated_block: Option<BlockId>,
@@ -200,7 +219,7 @@ impl<'a> ParseExecutionContext {
         }
     }
     fn eval_job_list(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job_list: &'a ast::JobList,
         associated_block: BlockId,
@@ -223,8 +242,10 @@ impl<'a> ParseExecutionContext {
 
         // Check for stack overflow in case of function calls (regular stack overflow) or string
         // substitution blocks, which can be recursively called with eval (issue #9302).
-        let blocks = ctx.parser().blocks();
-        let block_type = blocks.get(associated_block).unwrap().typ();
+        let block_type = {
+            let blocks = ctx.parser().blocks();
+            blocks.get(associated_block).unwrap().typ()
+        };
         if (block_type == BlockType::top && ctx.parser().function_stack_is_overflowing())
             || (block_type == BlockType::subst && ctx.parser().is_eval_depth_exceeded())
         {
@@ -245,7 +266,10 @@ impl<'a> ParseExecutionContext {
     fn check_end_execution(&self, ctx: &OperationContext<'_>) -> Option<EndExecutionReason> {
         // If one of our jobs ended with SIGINT, we stop execution.
         // Likewise if fish itself got a SIGINT, or if something ran exit, etc.
-        if self.cancel_signal.is_some() || ctx.check_cancel() || fish_is_unwinding_for_exit() {
+        if self.cancel_signal.borrow().is_some()
+            || ctx.check_cancel()
+            || fish_is_unwinding_for_exit()
+        {
             return Some(EndExecutionReason::cancelled);
         }
         let parser = ctx.parser();
@@ -273,7 +297,7 @@ impl<'a> ParseExecutionContext {
             }
 
             // Get a backtrace.
-            let backtrace_and_desc = ctx.parser().get_backtrace(&self.pstree.src, error_list);
+            let backtrace_and_desc = ctx.parser().get_backtrace(&self.pstree().src, error_list);
 
             // Print it.
             if !should_suppress_stderr_for_tests() {
@@ -404,8 +428,8 @@ impl<'a> ParseExecutionContext {
     }
 
     // Utilities
-    fn node_source(&self, node: &dyn ast::Node) -> &wstr {
-        node.source(&self.pstree.src)
+    fn node_source(&self, node: &dyn ast::Node) -> Ref<'_, wstr> {
+        Ref::map(self.pstree(), |ps| node.source(&ps.src))
     }
     fn infinite_recursive_statement_in_job_list<'b>(
         &self,
@@ -503,12 +527,12 @@ impl<'a> ParseExecutionContext {
         let mut errors = ParseErrorList::new();
 
         // Get the unexpanded command string. We expect to always get it here.
-        let unexp_cmd = self.node_source(&statement.command);
+        let unexp_cmd_ref = self.node_source(&statement.command);
         let pos_of_command_token = statement.command.range().unwrap().start();
 
         // Expand the string to produce completions, and report errors.
         let expand_err = expand_to_command_and_args(
-            unexp_cmd,
+            &unexp_cmd_ref,
             ctx,
             out_cmd,
             Some(out_args),
@@ -599,7 +623,7 @@ impl<'a> ParseExecutionContext {
     }
 
     fn apply_variable_assignments(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         mut proc: Option<&mut Process>,
         variable_assignment_list: &ast::VariableAssignmentList,
@@ -610,10 +634,10 @@ impl<'a> ParseExecutionContext {
         }
         *block = Some(ctx.parser().push_block(Block::variable_assignment_block()));
         for variable_assignment in variable_assignment_list {
-            let source = self.node_source(&**variable_assignment);
-            let equals_pos = variable_assignment_equals_pos(source).unwrap();
-            let variable_name = &source[..equals_pos];
-            let expression = source[equals_pos + 1..].to_owned();
+            let source_ref = self.node_source(&**variable_assignment);
+            let equals_pos = variable_assignment_equals_pos(&source_ref).unwrap();
+            let variable_name = &source_ref[..equals_pos];
+            let expression = source_ref[equals_pos + 1..].to_owned();
             let mut expression_expanded = vec![];
             let mut errors = ParseErrorList::new();
             // TODO this is mostly copied from expand_arguments_from_nodes, maybe extract to function
@@ -657,7 +681,7 @@ impl<'a> ParseExecutionContext {
 
     // These create process_t structures from statements.
     fn populate_job_process(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job: &mut Job,
         proc: &mut Process,
@@ -695,7 +719,7 @@ impl<'a> ParseExecutionContext {
         }
     }
     fn populate_not_process(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job: &mut Job,
         proc: &mut Process,
@@ -715,7 +739,7 @@ impl<'a> ParseExecutionContext {
     }
     /// Creates a 'normal' (non-block) process.
     fn populate_plain_process(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         proc: &mut Process,
         statement: &ast::DecoratedStatement,
@@ -834,7 +858,7 @@ impl<'a> ParseExecutionContext {
     }
 
     fn populate_block_process(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         proc: &mut Process,
         statement: &ast::Statement,
@@ -857,7 +881,7 @@ impl<'a> ParseExecutionContext {
         let reason = self.determine_redirections(ctx, args_or_redirs, &mut redirections);
         if reason == EndExecutionReason::ok {
             proc.typ = ProcessType::block_node;
-            proc.block_node_source = Some(self.pstree.clone());
+            proc.block_node_source = Some(self.pstree().clone());
             proc.internal_block_node = Some(statement.into());
             proc.set_redirection_specs(redirections);
         }
@@ -866,7 +890,7 @@ impl<'a> ParseExecutionContext {
 
     // These encapsulate the actual logic of various (block) statements.
     fn run_block_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         statement: &'a ast::BlockStatement,
         associated_block: Option<BlockId>,
@@ -886,7 +910,7 @@ impl<'a> ParseExecutionContext {
         }
     }
     fn run_for_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         header: &'a ast::ForHeader,
         block_contents: &'a ast::JobList,
@@ -987,7 +1011,7 @@ impl<'a> ParseExecutionContext {
         ret
     }
     fn run_if_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         statement: &'a ast::IfStatement,
         associated_block: Option<BlockId>,
@@ -1076,7 +1100,7 @@ impl<'a> ParseExecutionContext {
         result
     }
     fn run_switch_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         statement: &'a ast::SwitchStatement,
     ) -> EndExecutionReason {
@@ -1189,7 +1213,7 @@ impl<'a> ParseExecutionContext {
         result
     }
     fn run_while_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         header: &'a ast::WhileHeader,
         contents: &'a ast::JobList,
@@ -1273,7 +1297,7 @@ impl<'a> ParseExecutionContext {
     }
     // Define a function.
     fn run_function_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         statement: &ast::BlockStatement,
         header: &ast::FunctionHeader,
@@ -1297,7 +1321,10 @@ impl<'a> ParseExecutionContext {
             &ctx.parser(),
             &mut streams,
             &mut arguments,
-            NodeRef::new(self.pstree.clone(), statement as *const ast::BlockStatement),
+            NodeRef::new(
+                self.pstree().clone(),
+                statement as *const ast::BlockStatement,
+            ),
         );
         let err_code = err_code.unwrap();
         ctx.parser().libdata_mut().pods.status_count += 1;
@@ -1310,7 +1337,7 @@ impl<'a> ParseExecutionContext {
         result
     }
     fn run_begin_statement(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         contents: &'a ast::JobList,
     ) -> EndExecutionReason {
@@ -1359,7 +1386,7 @@ impl<'a> ParseExecutionContext {
             let mut errors = ParseErrorList::new();
             arg_expanded.clear();
             let expand_ret = expand_string(
-                self.node_source(*arg_node).into(),
+                WString::from_chars(self.node_source(*arg_node).as_char_slice()),
                 &mut arg_expanded,
                 ExpandFlags::default(),
                 ctx,
@@ -1416,7 +1443,7 @@ impl<'a> ParseExecutionContext {
 
     // Determines the list of redirections for a node.
     fn determine_redirections(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         list: &ast::ArgumentOrRedirectionList,
         out_redirections: &mut RedirectionSpecList,
@@ -1428,7 +1455,7 @@ impl<'a> ParseExecutionContext {
             }
             let redir_node = arg_or_redir.redirection();
 
-            let oper = match PipeOrRedir::try_from(self.node_source(&redir_node.oper)) {
+            let oper = match PipeOrRedir::try_from(&self.node_source(&redir_node.oper)[..]) {
                 Ok(oper) if oper.is_valid() => oper,
                 _ => {
                     // TODO: figure out if this can ever happen. If so, improve this error message.
@@ -1497,7 +1524,7 @@ impl<'a> ParseExecutionContext {
     }
 
     fn run_1_job(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job_node: &'a ast::JobPipeline,
         associated_block: Option<BlockId>,
@@ -1520,9 +1547,11 @@ impl<'a> ParseExecutionContext {
         );
 
         // Save the node index.
-        let mut zelf = scoped_push(
+        let mut zelf = scoped_push_replacer(
             self,
-            |zelf| &mut zelf.executing_job_node,
+            |zelf, new_value| {
+                std::mem::replace(&mut zelf.executing_job_node.borrow_mut(), new_value)
+            },
             Some(ConstPointer::from(job_node)),
         );
 
@@ -1581,7 +1610,7 @@ impl<'a> ParseExecutionContext {
                 profile_item.duration = ProfileItem::now() - start_time;
                 profile_item.level = eval_level;
                 profile_item.cmd =
-                    profiling_cmd_name_for_redirectable_block(specific_statement, &zelf.pstree);
+                    profiling_cmd_name_for_redirectable_block(specific_statement, &zelf.pstree());
                 profile_item.skipped = false;
             }
 
@@ -1645,7 +1674,9 @@ impl<'a> ParseExecutionContext {
                 parser.job_add(job.clone());
 
                 // Actually execute the job.
-                if !exec_job(&parser, &job, &zelf.block_io) {
+                // todo!("is it correct to unset block_io here?")
+                let block_io = zelf.block_io.take();
+                if !exec_job(&parser, &job, &block_io) {
                     // No process in the job successfully launched.
                     // Ensure statuses are set (#7540).
                     if let Some(statuses) = job.get_statuses() {
@@ -1654,6 +1685,7 @@ impl<'a> ParseExecutionContext {
                     }
                     remove_job(&parser, &job);
                 }
+                zelf.block_io.replace(block_io);
 
                 // Update universal variables on external commands.
                 // We only incorporate external changes if we had an external proc, for hysterical raisins.
@@ -1661,8 +1693,9 @@ impl<'a> ParseExecutionContext {
             }
 
             // If the job got a SIGINT or SIGQUIT, then we're going to start unwinding.
-            if zelf.cancel_signal.is_none() {
-                zelf.cancel_signal = job.group().get_cancel_signal();
+            let mut cancel_signal = zelf.cancel_signal.borrow_mut();
+            if cancel_signal.is_none() {
+                *cancel_signal = job.group().get_cancel_signal();
             }
         }
 
@@ -1680,7 +1713,7 @@ impl<'a> ParseExecutionContext {
         pop_result
     }
     fn test_and_run_1_job_conjunction(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         jc: &'a ast::JobConjunction,
         associated_block: Option<BlockId>,
@@ -1714,7 +1747,7 @@ impl<'a> ParseExecutionContext {
         }
     }
     fn run_job_conjunction(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job_expr: &'a ast::JobConjunction,
         associated_block: Option<BlockId>,
@@ -1750,7 +1783,7 @@ impl<'a> ParseExecutionContext {
         result
     }
     fn run_job_list(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job_list_node: &'a ast::JobList,
         associated_block: Option<BlockId>,
@@ -1763,7 +1796,7 @@ impl<'a> ParseExecutionContext {
         result
     }
     fn run_andor_job_list(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         job_list_node: &'a ast::AndorJobList,
         associated_block: Option<BlockId>,
@@ -1777,7 +1810,7 @@ impl<'a> ParseExecutionContext {
     }
 
     fn populate_job_from_job_node(
-        &mut self,
+        &self,
         ctx: &OperationContext<'_>,
         j: &mut Job,
         job_node: &ast::JobPipeline,
@@ -1801,7 +1834,7 @@ impl<'a> ParseExecutionContext {
                 break;
             }
             // Handle the pipe, whose fd may not be the obvious stdout.
-            let parsed_pipe = PipeOrRedir::try_from(self.node_source(&jc.pipe))
+            let parsed_pipe = PipeOrRedir::try_from(&self.node_source(&jc.pipe)[..])
                 .expect("Failed to parse valid pipe");
             if !parsed_pipe.is_valid() {
                 result = report_error!(
@@ -1850,7 +1883,7 @@ impl<'a> ParseExecutionContext {
     }
 
     // Assign a job group to the given job.
-    fn setup_group(&mut self, ctx: &OperationContext<'_>, j: &mut Job) {
+    fn setup_group(&self, ctx: &OperationContext<'_>, j: &mut Job) {
         // We can use the parent group if it's compatible and we're not backgrounded.
         if ctx.job_group.as_ref().map_or(false, |job_group| {
             job_group.read().unwrap().has_job_id() || !j.wants_job_id()
@@ -1890,19 +1923,21 @@ impl<'a> ParseExecutionContext {
         }
     }
 
-    // Returns the line number of the current node. Not const since it touches cached_lineno_offset.
-    fn line_offset_of_executing_node(&mut self) -> Option<usize> {
+    // Returns the line number of the current node.
+    fn line_offset_of_executing_node(&self) -> Option<usize> {
         // If we're not executing anything, return nothing.
-        let node = self.executing_job_node?;
+        let node = self.executing_job_node.borrow();
+        let node = node.as_ref()?;
 
         // If for some reason we're executing a node without source, return nothing.
         let range = node.try_source_range()?;
 
         Some(self.line_offset_of_character_at_offset(range.start()))
     }
-    fn line_offset_of_character_at_offset(&mut self, offset: usize) -> usize {
+
+    fn line_offset_of_character_at_offset(&self, offset: usize) -> usize {
         // Count the number of newlines, leveraging our cache.
-        assert!(offset <= self.pstree.src.len());
+        assert!(offset <= self.pstree().src.len());
 
         // Easy hack to handle 0.
         if offset == 0 {
@@ -1910,25 +1945,25 @@ impl<'a> ParseExecutionContext {
         }
 
         // We want to return (one plus) the number of newlines at offsets less than the given offset.
-        // cached_lineno_count is the number of newlines at indexes less than cached_lineno_offset.
-        let src = &self.pstree.src;
-        if offset > self.cached_lineno_offset {
-            // Add one for every newline we find in the range [cached_lineno_offset, offset).
-            let i = src[self.cached_lineno_offset..offset]
+        let src = &self.pstree().src;
+        let mut cached_range = self.cached_lineno.borrow_mut();
+        if offset > cached_range.start {
+            // Add one for every newline we find in the range [cached_range.start, offset).
+            let i = src[cached_range.start..offset]
                 .chars()
                 .filter(|c| *c == '\n')
                 .count();
             // note: i, not offset, in case offset is beyond the length of the string
-            self.cached_lineno_offset = i;
-        } else if offset < self.cached_lineno_offset {
-            // Subtract one for every newline we find in the range [offset, cached_lineno_offset).
-            self.cached_lineno_count -= src[offset..self.cached_lineno_offset]
+            cached_range.start = i;
+        } else if offset < cached_range.start {
+            // Subtract one for every newline we find in the range [offset, cached_range.start).
+            cached_range.end -= src[offset..cached_range.start]
                 .chars()
                 .filter(|c| *c == '\n')
                 .count();
-            self.cached_lineno_offset = offset;
+            cached_range.start = offset;
         }
-        self.cached_lineno_count
+        cached_range.start
     }
 }
 

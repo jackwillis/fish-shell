@@ -945,8 +945,7 @@ fn builtin_break_continue(
     // Paranoia: ensure we have a real loop.
     // This is checked in the AST but we may be invoked dynamically, e.g. just via "eval break".
     let mut has_loop = false;
-    let blocks = parser.blocks();
-    for b in blocks.iter().rev() {
+    for b in parser.blocks().iter().rev() {
         if [BlockType::while_block, BlockType::for_block].contains(&b.typ()) {
             has_loop = true;
             break;
@@ -994,14 +993,18 @@ fn builtin_breakpoint(
 
     // Ensure we don't allow creating a breakpoint at an interactive prompt. There may be a simpler
     // or clearer way to do this but this works.
-    let blocks = parser.blocks();
-    let block1 = blocks.get(1);
-    if block1.map_or(true, |b| b.typ() == BlockType::breakpoint) {
-        streams.err.append(&wgettext_fmt!(
-            "%ls: Command not valid at and interactive prompt\n",
-            cmd,
-        ));
-        return STATUS_ILLEGAL_CMD;
+    {
+        let blocks = parser.blocks();
+        if blocks
+            .get(1)
+            .map_or(true, |b| b.typ() == BlockType::breakpoint)
+        {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Command not valid at and interactive prompt\n",
+                cmd,
+            ));
+            return STATUS_ILLEGAL_CMD;
+        }
     }
 
     let bpb = parser.push_block(Block::breakpoint_block());

@@ -1536,7 +1536,7 @@ fn proc_wants_summary(j: &Job, p: &Process) -> bool {
 
     // Did we die due to a signal other than SIGPIPE?
     let s = &p.status;
-    if s.signal_exited() || s.signal_code() == SIGPIPE {
+    if !s.signal_exited() || s.signal_code() == SIGPIPE {
         return false;
     }
 

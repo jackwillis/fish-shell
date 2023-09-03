@@ -28,7 +28,7 @@ pub fn source(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]
     }
 
     // If we open a file, this ensures we close it.
-    let mut opened_fd = AutoCloseFd::empty();
+    let opened_fd;
 
     // The fd that we read from, either from opened_fd or stdin.
     let fd;
@@ -50,7 +50,7 @@ pub fn source(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]
         func_filename = FilenameRef::new(L!("").to_owned());
         fd = streams.stdin_fd;
     } else {
-        let opened_fd = AutoCloseFd::new(wopen_cloexec(&args[optind], O_RDONLY, 0));
+        opened_fd = AutoCloseFd::new(wopen_cloexec(&args[optind], O_RDONLY, 0));
         if !opened_fd.is_valid() {
             let esc = escape(&args[optind]);
             streams.err.append(&wgettext_fmt!(

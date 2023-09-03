@@ -457,7 +457,7 @@ pub struct IoBuffer {
     item_id: AtomicU64,
 }
 
-// safety: todo!("rationalize why fill_waiter is safe")
+// safety: todo!("safety: rationalize why fill_waiter is safe")
 unsafe impl Send for IoBuffer {}
 unsafe impl Sync for IoBuffer {}
 
