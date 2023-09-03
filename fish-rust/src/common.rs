@@ -2131,9 +2131,8 @@ impl ToCString for &[u8] {
     }
 }
 
-#[allow(unused_macros)]
 macro_rules! fwprintf {
-    ($fd:expr, $format:literal $(, $arg:expr)*) => {
+    ($fd:expr, $format:expr $(, $arg:expr)*) => {
         {
             let wide = crate::wutil::sprintf!($format, $( $arg ),*);
             crate::wutil::wwrite_to_fd(&wide, $fd);
