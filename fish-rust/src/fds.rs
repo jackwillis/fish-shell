@@ -213,9 +213,9 @@ pub fn make_fd_nonblocking(fd: RawFd) -> Result<(), io::Error> {
     let flags = unsafe { libc::fcntl(fd, F_GETFL, 0) };
     let nonblocking = (flags & O_NONBLOCK) == O_NONBLOCK;
     if !nonblocking {
-        match unsafe { libc::fcntl(F_SETFL, fd, flags | O_NONBLOCK) } {
-            0 => return Ok(()),
-            _ => return Err(io::Error::last_os_error()),
+        match unsafe { libc::fcntl(fd, F_SETFL, flags | O_NONBLOCK) } {
+            -1 => return Err(io::Error::last_os_error()),
+            _ => return Ok(()),
         };
     }
     Ok(())
@@ -227,8 +227,8 @@ pub fn make_fd_blocking(fd: RawFd) -> Result<(), io::Error> {
     let nonblocking = (flags & O_NONBLOCK) == O_NONBLOCK;
     if nonblocking {
         match unsafe { libc::fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } {
-            0 => return Ok(()),
-            _ => return Err(io::Error::last_os_error()),
+            -1 => return Err(io::Error::last_os_error()),
+            _ => return Ok(()),
         };
     }
     Ok(())

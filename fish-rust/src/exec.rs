@@ -734,7 +734,7 @@ fn create_output_stream_for_builtin(
         IoMode::bufferfill => {
             // Our IO redirection is to an internal buffer, e.g. a command substitution.
             // We will write directly to it.
-            let buffer = io.as_bufferfill().unwrap().the_buffer();
+            let buffer = io.as_bufferfill().unwrap().buffer_ref();
             Box::new(BufferedOutputStream::new(buffer.clone()))
         }
         IoMode::close => {

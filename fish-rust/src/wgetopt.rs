@@ -206,6 +206,9 @@ impl<'opts, 'argarray> wgetopter_t<'opts, 'argarray> {
     }
 
     fn nextchar(&self) -> &wstr {
+        if self.nextchar_slice.is_empty() {
+            return L!("");
+        }
         self.argv
             .get(self.woptind)
             .map_or(L!(""), |arg| &arg[self.nextchar_slice.clone()])
