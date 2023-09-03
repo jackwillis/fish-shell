@@ -83,7 +83,7 @@ pub enum EndExecutionReason {
 pub struct ParseExecutionContext {
     pub is_valid: Cell<bool>,
 
-    pub pstree: RefCell<Option<ParsedSourceRef>>,
+    pstree: RefCell<Option<ParsedSourceRef>>,
 
     // If set, one of our processes received a cancellation signal (INT or QUIT) so we are
     // unwinding.
@@ -147,8 +147,9 @@ impl<'a> ParseExecutionContext {
         }
     }
 
-    fn pstree(&self) -> Ref<'_, ParsedSourceRef> {
-        Ref::map(self.pstree.borrow(), |o| o.as_ref().unwrap())
+    pub fn pstree(&self) -> ParsedSourceRef {
+        // todo!("later: don't clone but expose a Ref<'_, ParsedSourceRef> or similar")
+        self.pstree.borrow().as_ref().unwrap().clone()
     }
 
     /// Returns the current line number, indexed from 1. Updates cached line ranges.
@@ -167,13 +168,9 @@ impl<'a> ParseExecutionContext {
     }
 
     /// Returns the source string.
-    pub fn get_source(&self) -> Ref<'_, WString> {
-        Ref::map(self.pstree(), |ps| &ps.src)
-    }
-
-    /// Return the parsed ast.
-    pub fn ast(&self) -> Ref<'_, Ast> {
-        Ref::map(self.pstree(), |ps| &ps.ast)
+    pub fn get_source(&self) -> WString {
+        // todo!("later: don't clone");
+        self.pstree().src.clone()
     }
 
     pub fn eval_node(
@@ -428,8 +425,9 @@ impl<'a> ParseExecutionContext {
     }
 
     // Utilities
-    fn node_source(&self, node: &dyn ast::Node) -> Ref<'_, wstr> {
-        Ref::map(self.pstree(), |ps| node.source(&ps.src))
+    fn node_source(&self, node: &dyn ast::Node) -> WString {
+        // todo!("later: maybe don't copy")
+        node.source(&self.pstree().src).to_owned()
     }
     fn infinite_recursive_statement_in_job_list<'b>(
         &self,
@@ -475,7 +473,7 @@ impl<'a> ParseExecutionContext {
                 }
 
                 // Check the command.
-                let mut cmd = self.node_source(&dc.command).to_owned();
+                let mut cmd = self.node_source(&dc.command);
                 let forbidden = !cmd.is_empty()
                     && expand_one(
                         &mut cmd,
@@ -527,12 +525,13 @@ impl<'a> ParseExecutionContext {
         let mut errors = ParseErrorList::new();
 
         // Get the unexpanded command string. We expect to always get it here.
-        let unexp_cmd_ref = self.node_source(&statement.command);
+        // todo!("later: remove clone")
+        let unexp_cmd = self.node_source(&statement.command);
         let pos_of_command_token = statement.command.range().unwrap().start();
 
         // Expand the string to produce completions, and report errors.
         let expand_err = expand_to_command_and_args(
-            &unexp_cmd_ref,
+            &unexp_cmd,
             ctx,
             out_cmd,
             Some(out_args),
@@ -553,7 +552,7 @@ impl<'a> ParseExecutionContext {
                 STATUS_UNMATCHED_WILDCARD.unwrap(),
                 statement,
                 WILDCARD_ERR_MSG,
-                self.node_source(statement)
+                &self.node_source(statement)
             );
         }
         assert!(expand_err == ExpandResultCode::ok);
@@ -634,10 +633,10 @@ impl<'a> ParseExecutionContext {
         }
         *block = Some(ctx.parser().push_block(Block::variable_assignment_block()));
         for variable_assignment in variable_assignment_list {
-            let source_ref = self.node_source(&**variable_assignment);
-            let equals_pos = variable_assignment_equals_pos(&source_ref).unwrap();
-            let variable_name = &source_ref[..equals_pos];
-            let expression = source_ref[equals_pos + 1..].to_owned();
+            let source = self.node_source(&**variable_assignment);
+            let equals_pos = variable_assignment_equals_pos(&source).unwrap();
+            let variable_name = &source[..equals_pos];
+            let expression = source[equals_pos + 1..].to_owned();
             let mut expression_expanded = vec![];
             let mut errors = ParseErrorList::new();
             // TODO this is mostly copied from expand_arguments_from_nodes, maybe extract to function
@@ -917,7 +916,7 @@ impl<'a> ParseExecutionContext {
     ) -> EndExecutionReason {
         // Get the variable name: `for var_name in ...`. We expand the variable name. It better result
         // in just one.
-        let mut for_var_name = self.node_source(&header.var_name).to_owned();
+        let mut for_var_name = self.node_source(&header.var_name);
         if !expand_one(&mut for_var_name, ExpandFlags::default(), ctx, None) {
             return report_error!(
                 self,
@@ -1111,7 +1110,7 @@ impl<'a> ParseExecutionContext {
         let mut switch_values_expanded = vec![];
         let mut errors = ParseErrorList::new();
         let expand_ret = expand_string(
-            switch_value.to_owned(),
+            switch_value,
             &mut switch_values_expanded,
             ExpandFlags::default(),
             ctx,
@@ -1133,7 +1132,7 @@ impl<'a> ParseExecutionContext {
                     STATUS_UNMATCHED_WILDCARD.unwrap(),
                     &statement.argument,
                     WILDCARD_ERR_MSG,
-                    self.node_source(&statement.argument)
+                    &self.node_source(&statement.argument)
                 );
             }
             ExpandResultCode::ok => {
@@ -1321,10 +1320,7 @@ impl<'a> ParseExecutionContext {
             &ctx.parser(),
             &mut streams,
             &mut arguments,
-            NodeRef::new(
-                self.pstree().clone(),
-                statement as *const ast::BlockStatement,
-            ),
+            NodeRef::new(self.pstree(), statement as *const ast::BlockStatement),
         );
         let err_code = err_code.unwrap();
         ctx.parser().libdata_mut().pods.status_count += 1;
@@ -1386,7 +1382,7 @@ impl<'a> ParseExecutionContext {
             let mut errors = ParseErrorList::new();
             arg_expanded.clear();
             let expand_ret = expand_string(
-                WString::from_chars(self.node_source(*arg_node).as_char_slice()),
+                self.node_source(*arg_node),
                 &mut arg_expanded,
                 ExpandFlags::default(),
                 ctx,
@@ -1413,7 +1409,7 @@ impl<'a> ParseExecutionContext {
                             STATUS_UNMATCHED_WILDCARD.unwrap(),
                             arg_node,
                             WILDCARD_ERR_MSG,
-                            self.node_source(*arg_node)
+                            &self.node_source(*arg_node)
                         );
                     }
                 }
@@ -1465,13 +1461,13 @@ impl<'a> ParseExecutionContext {
                         STATUS_INVALID_ARGS.unwrap(),
                         redir_node,
                         "Invalid redirection: %ls",
-                        self.node_source(redir_node)
+                        &self.node_source(redir_node)
                     );
                 }
             };
 
             // PCA: I can't justify this skip_variables flag. It was like this when I got here.
-            let mut target = self.node_source(&redir_node.target).to_owned();
+            let mut target = self.node_source(&redir_node.target);
             let target_expanded = expand_one(
                 &mut target,
                 if no_exec() {
@@ -1639,7 +1635,7 @@ impl<'a> ParseExecutionContext {
             }
         }
 
-        let mut job = Job::new(props, zelf.node_source(job_node).to_owned());
+        let mut job = Job::new(props, zelf.node_source(job_node));
 
         // We are about to populate a job. One possible argument to the job is a command substitution
         // which may be interested in the job that's populating it, via '--on-job-exit caller'. Record
@@ -1674,8 +1670,8 @@ impl<'a> ParseExecutionContext {
                 parser.job_add(job.clone());
 
                 // Actually execute the job.
-                // todo!("is it correct to unset block_io here?")
-                let block_io = zelf.block_io.take();
+                // todo!("try to not clone; also is it even correct?")
+                let block_io = zelf.block_io.borrow().clone();
                 if !exec_job(&parser, &job, &block_io) {
                     // No process in the job successfully launched.
                     // Ensure statuses are set (#7540).
@@ -1685,7 +1681,6 @@ impl<'a> ParseExecutionContext {
                     }
                     remove_job(&parser, &job);
                 }
-                zelf.block_io.replace(block_io);
 
                 // Update universal variables on external commands.
                 // We only incorporate external changes if we had an external proc, for hysterical raisins.
@@ -1843,7 +1838,7 @@ impl<'a> ParseExecutionContext {
                     STATUS_INVALID_ARGS.unwrap(),
                     &jc.pipe,
                     ILLEGAL_FD_ERR_MSG,
-                    self.node_source(&jc.pipe)
+                    &self.node_source(&jc.pipe)
                 );
                 break;
             }

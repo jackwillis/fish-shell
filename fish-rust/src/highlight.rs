@@ -1035,7 +1035,7 @@ impl<'s> Highlighter<'s> {
         while parse_util_locate_cmdsubst_range(
             arg_str,
             &mut cmdsub_cursor,
-            Some(cmdsub_contents),
+            Some(&mut cmdsub_contents),
             &mut cmdsub_start,
             &mut cmdsub_end,
             /*accept_incomplete=*/ true,

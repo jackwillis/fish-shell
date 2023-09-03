@@ -980,7 +980,8 @@ impl Parser {
             if which_line > 0 {
                 wgettext_fmt!(
                     "%ls (line %lu): ",
-                    user_presentable_path(&filename, self.vars())
+                    user_presentable_path(&filename, self.vars()),
+                    which_line
                 )
             } else {
                 wgettext_fmt!("%ls: ", user_presentable_path(&filename, self.vars()))
@@ -1078,7 +1079,7 @@ impl Parser {
 
     /// Checks if the max eval depth has been exceeded
     pub fn is_eval_depth_exceeded(&self) -> bool {
-        self.eval_level.load(Ordering::Relaxed) as usize >= FISH_MAX_EVAL_DEPTH
+        self.eval_level.load(Ordering::Relaxed) >= isize::try_from(FISH_MAX_EVAL_DEPTH).unwrap()
     }
 }
 

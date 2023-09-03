@@ -1,4 +1,21 @@
 use super::prelude::*;
+use crate::common::escape;
+use crate::common::escape_string;
+use crate::common::get_ellipsis_char;
+use crate::common::get_ellipsis_str;
+use crate::common::valid_var_name;
+use crate::common::EscapeFlags;
+use crate::common::EscapeStringStyle;
+use crate::env::EnvStackSetResult;
+use crate::env::EnvVarFlags;
+use crate::env::{status, INHERITED_VARS};
+use crate::event;
+use crate::event::Event;
+use crate::expand::expand_escape_string;
+use crate::expand::expand_escape_variable;
+use crate::history::history_session_id;
+use crate::history::History;
+use crate::wchar_ext::WExt;
 use crate::wutil::wcstoi;
 use crate::{
     env::{EnvMode, EnvVar, Environment},
@@ -6,17 +23,11 @@ use crate::{
 };
 use once_cell::sync::Lazy;
 
-// PORTING: I don't know if `_` is evaluated at runtime or compile-time and whether translations are/will be embedded/loaded at runtime
 // FIXME: (once localization works in Rust) These should separate `%ls: ` and the trailing `\n`, like in builtins/string
-const MISMATCHED_ARGS: Lazy<&wstr> =
-    Lazy::new(|| wgettext_str(L!("%ls: given %d indexes but %d values\n")));
-const ARRAY_BOUNDS_ERR: Lazy<&wstr> =
-    Lazy::new(|| wgettext_str(L!("%ls: array index out of bounds\n")));
-const UVAR_ERR: Lazy<&wstr> = Lazy::new(|| {
-    wgettext_str(L!(
-        "%ls: successfully set universal '%ls'; but a global by that name shadows it\n"
-    ))
-});
+const MISMATCHED_ARGS: &str = "%ls: given %d indexes but %d values\n";
+const ARRAY_BOUNDS_ERR: &str = "%ls: array index out of bounds\n";
+const UVAR_ERR: &str =
+    "%ls: successfully set universal '%ls'; but a global by that name shadows it\n";
 
 #[derive(Debug, Clone)]
 struct Options {
@@ -282,6 +293,70 @@ impl Options {
 
 // Check if we are setting a uvar and a global of the same name exists. See
 // https://github.com/fish-shell/fish-shell/issues/806
+fn warn_if_uvar_shadows_global(
+    cmd: &wstr,
+    opts: &Options,
+    dest: &wstr,
+    streams: &mut IoStreams,
+    parser: &Parser,
+) {
+    if opts.universal && parser.is_interactive() {
+        if parser.vars().getf(dest, EnvMode::GLOBAL).is_some() {
+            streams.err.append(&wgettext_fmt!(UVAR_ERR, cmd, dest));
+        }
+    }
+}
+
+fn handle_env_return(retval: EnvStackSetResult, cmd: &wstr, key: &wstr, streams: &mut IoStreams) {
+    match retval {
+        EnvStackSetResult::ENV_OK => (),
+        EnvStackSetResult::ENV_PERM => {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Tried to change the read-only variable '%ls'\n",
+                cmd,
+                key
+            ));
+        }
+        EnvStackSetResult::ENV_SCOPE => {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Tried to modify the special variable '%ls' with the wrong scope\n",
+                cmd,
+                key
+            ));
+        }
+        EnvStackSetResult::ENV_INVALID => {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Tried to modify the special variable '%ls' to an invalid value\n",
+                cmd,
+                key
+            ));
+        }
+        EnvStackSetResult::ENV_NOT_FOUND => {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: The variable '%ls' does not exist\n",
+                cmd,
+                key
+            ));
+        }
+        _ => panic!("unexpected vars.set() ret val"),
+    }
+}
+
+/// Call vars.set. If this is a path variable, e.g. PATH, validate the elements. On error, print a
+/// description of the problem to stderr.
+fn env_set_reporting_errors(
+    cmd: &wstr,
+    key: &wstr,
+    scope: EnvMode,
+    list: Vec<WString>,
+    streams: &mut IoStreams,
+    parser: &Parser,
+) -> EnvStackSetResult {
+    let retval = parser.set_var_and_fire(key, scope | EnvMode::USER, list);
+    // If this returned OK, the parser already fired the event.
+    handle_env_return(retval, cmd, key, streams);
+    retval
+}
 
 // PORTING: maybe just add `thiserror`?
 enum EnvArrayParseError {
@@ -304,9 +379,16 @@ impl std::fmt::Display for EnvArrayParseError {
 
 #[derive(Debug, Default)]
 struct SplitVar<'a> {
-    name: &'a wstr,
+    varname: &'a wstr,
     var: Option<EnvVar>,
     indexes: Vec<usize>,
+}
+
+impl<'a> SplitVar<'a> {
+    /// \return the number of elements in our variable, or 0 if missing.
+    fn varsize(&self) -> usize {
+        self.var.as_ref().map_or(0, |var| var.as_list().len())
+    }
 }
 
 /// Extract indexes from an argument of the form `var_name[index1 index2...]`.
@@ -321,13 +403,32 @@ fn split_var_and_indexes<'a>(
     arg: &'a wstr,
     mode: EnvMode,
     vars: &dyn Environment,
+    streams: &mut IoStreams,
+) -> Option<SplitVar<'a>> {
+    match split_var_and_indexes_internal(arg, mode, vars) {
+        Ok(split) => Some(split),
+        Err(EnvArrayParseError::InvalidIndex(varname)) => {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Invalid index starting at '%ls'\n",
+                "set",
+                &varname,
+            ));
+            None
+        }
+    }
+}
+
+fn split_var_and_indexes_internal<'a>(
+    arg: &'a wstr,
+    mode: EnvMode,
+    vars: &dyn Environment,
 ) -> Result<SplitVar<'a>, EnvArrayParseError> {
     // PORTING: this should probably be made reusable in some way?
 
     let mut res = SplitVar::default();
     let open_bracket = arg.find_char('[');
-    res.name = open_bracket.map(|b| arg.slice_from(b)).unwrap_or(arg);
-    res.var = vars.get(res.name);
+    res.varname = open_bracket.map(|b| arg.slice_from(b)).unwrap_or(arg);
+    res.var = vars.get(res.varname);
     let Some(open_bracket) = open_bracket else {
         // Common case of no bracket
         return Ok(res);
@@ -352,7 +453,7 @@ fn split_var_and_indexes<'a>(
             l_ind = 1; // first index
         } else {
             l_ind = wcstoi_partial(c, crate::wutil::Options::default(), &mut consumed)
-                .map_err(|_| EnvArrayParseError::InvalidIndex(res.name.to_owned()))?;
+                .map_err(|_| EnvArrayParseError::InvalidIndex(res.varname.to_owned()))?;
             c = c.slice_from(consumed);
         }
 
@@ -367,7 +468,7 @@ fn split_var_and_indexes<'a>(
                         // also: in the case of `var[1 1]` we should probably either de-duplicate
                         // or make that a hard error.
                         // the behavior of `..` is also somewhat weird
-                        return Err(EnvArrayParseError::InvalidIndex(res.name.to_owned()));
+                        return Err(EnvArrayParseError::InvalidIndex(res.varname.to_owned()));
                     };
                     Ok(idx)
                 }
@@ -388,7 +489,7 @@ fn split_var_and_indexes<'a>(
             } else {
                 // PORTING: this needs an error-message
                 l_ind2 = wcstoi_partial(c, crate::wutil::Options::default(), &mut consumed)
-                    .map_err(|_| EnvArrayParseError::InvalidIndex(res.name.to_owned()))?;
+                    .map_err(|_| EnvArrayParseError::InvalidIndex(res.varname.to_owned()))?;
                 c = c.slice_from(consumed);
             }
 
@@ -406,6 +507,54 @@ fn split_var_and_indexes<'a>(
     Ok(res)
 }
 
+/// Given a list of values and 1-based indexes, return a new list with those elements removed.
+/// Note this deliberately accepts both args by value, as it modifies them both.
+fn erased_at_indexes(mut input: Vec<WString>, mut indexes: Vec<usize>) -> Vec<WString> {
+    // Sort our indexes into *descending* order.
+    indexes.sort_by_key(|index| -isize::try_from(*index).unwrap());
+
+    // Remove duplicates.
+    indexes.dedup();
+
+    // Now when we walk indexes, we encounter larger indexes first.
+    for idx in indexes {
+        if idx > 0 && idx <= input.len() {
+            // One-based indexing!
+            input.remove(idx - 1);
+        }
+    }
+    input
+}
+
+fn compute_scope(opts: &Options) -> EnvMode {
+    let mut scope = EnvMode::USER;
+    if opts.local {
+        scope |= EnvMode::LOCAL;
+    }
+    if opts.function {
+        scope |= EnvMode::FUNCTION
+    }
+    if opts.global {
+        scope |= EnvMode::GLOBAL
+    }
+    if opts.exportv {
+        scope |= EnvMode::EXPORT
+    }
+    if opts.unexport {
+        scope |= EnvMode::UNEXPORT
+    }
+    if opts.universal {
+        scope |= EnvMode::UNIVERSAL
+    }
+    if opts.pathvar {
+        scope |= EnvMode::PATHVAR
+    }
+    if opts.unpathvar {
+        scope |= EnvMode::UNPATHVAR
+    }
+    scope
+}
+
 fn query(
     cmd: &wstr,
     opts: &Options,
@@ -413,7 +562,38 @@ fn query(
     streams: &mut IoStreams<'_>,
     args: &[WString],
 ) -> Option<c_int> {
-    todo!()
+    let mut retval = 0;
+    let scope = compute_scope(opts);
+
+    // No variables given, this is an error.
+    // 255 is the maximum return code we allow.
+    if args.is_empty() {
+        return Some(255);
+    }
+
+    for arg in args {
+        let Some(split) = split_var_and_indexes(arg, scope, parser.vars(), streams) else {
+            builtin_print_error_trailer(parser, streams.err, cmd);
+            return STATUS_CMD_ERROR;
+        };
+
+        if split.indexes.is_empty() {
+            // No indexes, just increment if our variable is missing.
+            if split.var.is_none() {
+                retval += 1;
+            }
+        } else {
+            // Increment for every index out of range.
+            let varsize = split.varsize();
+            for idx in split.indexes {
+                if idx < 1 || idx > varsize {
+                    retval += 1;
+                }
+            }
+        }
+    }
+
+    Some(retval)
 }
 
 fn erase(
@@ -423,9 +603,77 @@ fn erase(
     streams: &mut IoStreams<'_>,
     args: &[WString],
 ) -> Option<c_int> {
-    todo!()
+    let mut ret = STATUS_CMD_OK;
+    let scopes = compute_scope(opts);
+    // `set -e` is allowed to be called with multiple scopes.
+    let mut bit = 0;
+    for bit in (0..)
+        .into_iter()
+        .take_while(|bit| 1 << bit <= EnvMode::USER.bits())
+    {
+        let scope = scopes.intersection(EnvMode::from_bits(1 << bit).unwrap());
+        if scope.bits() == 0 || (scope == EnvMode::USER && scopes != EnvMode::USER) {
+            continue;
+        }
+        for arg in args {
+            let Some(split) = split_var_and_indexes(arg, scope, parser.vars(), streams) else {
+                builtin_print_error_trailer(parser, streams.err, cmd);
+                return STATUS_CMD_ERROR;
+            };
+
+            if !valid_var_name(split.varname) {
+                streams
+                    .err
+                    .append(&wgettext_fmt!(BUILTIN_ERR_VARNAME, cmd, split.varname));
+                builtin_print_error_trailer(parser, streams.err, cmd);
+                return STATUS_INVALID_ARGS;
+            }
+            let retval;
+            if split.indexes.is_empty() {
+                // unset the var
+                retval = parser.vars().remove(split.varname, scope);
+                // When a non-existent-variable is unset, return ENV_NOT_FOUND as $status
+                // but do not emit any errors at the console as a compromise between user
+                // friendliness and correctness.
+                if retval != EnvStackSetResult::ENV_NOT_FOUND {
+                    handle_env_return(retval, cmd, split.varname, streams);
+                }
+                if retval == EnvStackSetResult::ENV_OK {
+                    event::fire(parser, Event::variable_erase(split.varname.to_owned()));
+                }
+            } else {
+                // remove just the specified indexes of the var
+                let Some(var) = split.var else {
+                    return STATUS_CMD_ERROR;
+                };
+                let result = erased_at_indexes(var.as_list().to_owned(), split.indexes);
+                retval =
+                    env_set_reporting_errors(cmd, split.varname, scope, result, streams, parser);
+            }
+
+            // Set $status to the last error value.
+            // This is cheesy, but I don't expect this to be checked often.
+            if retval != EnvStackSetResult::ENV_OK {
+                ret = env_result_to_status(retval);
+            }
+        }
+    }
+    ret
 }
 
+fn env_result_to_status(retval: EnvStackSetResult) -> Option<c_int> {
+    Some(match retval {
+        EnvStackSetResult::ENV_OK => 0,
+        EnvStackSetResult::ENV_PERM => 1,
+        EnvStackSetResult::ENV_SCOPE => 2,
+        EnvStackSetResult::ENV_INVALID => 3,
+        EnvStackSetResult::ENV_NOT_FOUND => 4,
+        _ => panic!(),
+    })
+}
+
+/// Print the names of all environment variables in the scope. It will include the values unless the
+/// `set --names` flag was used.
 fn list(
     cmd: &wstr,
     opts: &Options,
@@ -445,14 +693,111 @@ fn list(
         if !names_only {
             let mut val = WString::new();
             if opts.shorten_ok && key == "history" {
-                todo!("history")
+                let history = History::with_name(&history_session_id(parser.vars()));
+                for i in 1..history.size() {
+                    if val.len() >= 64 {
+                        break;
+                    }
+                    if i > 1 {
+                        val.push(' ');
+                    }
+                    val += &expand_escape_string(history.item_at_index(i).unwrap().str())[..]
+                }
+            } else {
+                if let Some(var) = parser.vars().getf_unless_empty(&key, compute_scope(opts)) {
+                    val = expand_escape_variable(&var);
+                }
+            }
+            if !val.is_empty() {
+                let mut shorten = false;
+                if opts.shorten_ok && val.len() > 64 {
+                    shorten = true;
+                    val.truncate(60);
+                }
+                out.push(' ');
+                out.push_utfstr(&val);
+
+                if shorten {
+                    out.push(get_ellipsis_char());
+                }
             }
         }
+
+        out.push('\n');
+        streams.out.append(&out);
     }
 
     STATUS_CMD_OK
 }
 
+fn show_scope(var_name: &wstr, scope: EnvMode, streams: &mut IoStreams, vars: &dyn Environment) {
+    let mut scope_name = match scope {
+        EnvMode::LOCAL => L!("local"),
+        EnvMode::GLOBAL => L!("global"),
+        EnvMode::UNIVERSAL => L!("universal"),
+        _ => panic!("invalid scope"),
+    };
+    let Some(var) = vars.getf(var_name, scope) else {
+        return;
+    };
+
+    let exportv = if var.exports() {
+        wgettext!("exported")
+    } else {
+        wgettext!("unexported")
+    };
+    let pathvarv = if var.is_pathvar() {
+        wgettext!(" a path variable")
+    } else {
+        L!("")
+    };
+    let vals = var.as_list();
+    streams.out.append(&wgettext_fmt!(
+        "$%ls: set in %ls scope, %ls,%ls with %d elements",
+        var_name,
+        scope_name,
+        exportv,
+        pathvarv,
+        vals.len()
+    ));
+    // HACK: PWD can be set, depending on how you ask.
+    // For our purposes it's read-only.
+    if EnvVar::flags_for(var_name).contains(EnvVarFlags::READ_ONLY) {
+        streams.out.append(&wgettext!(" (read-only)\n"));
+    } else {
+        streams.out.push('\n');
+    }
+
+    for i in 0..vals.len() {
+        if vals.len() > 100 {
+            if i == 50 {
+                // try to print a mid-line ellipsis because we are eliding lines not words
+                streams.out.append(if u32::from(get_ellipsis_char()) > 256 {
+                    L!("\u{22EF}")
+                } else {
+                    get_ellipsis_str()
+                });
+                streams.out.push('\n');
+            }
+            if i >= 50 && i < vals.len() - 50 {
+                continue;
+            }
+        }
+        let value = &vals[i];
+        let escaped_val = escape_string(
+            &value,
+            EscapeStringStyle::Script(EscapeFlags::NO_PRINTABLES | EscapeFlags::NO_QUOTED),
+        );
+        streams.out.append(&wgettext_fmt!(
+            "$%ls[%d]: |%ls|\n",
+            var_name,
+            i + 1,
+            &escaped_val
+        ));
+    }
+}
+
+/// Show mode. Show information about the named variable(s).
 fn show(
     cmd: &wstr,
     opts: &Options,
@@ -460,17 +805,222 @@ fn show(
     streams: &mut IoStreams<'_>,
     args: &[WString],
 ) -> Option<c_int> {
-    todo!()
+    let vars = parser.vars();
+    if args.is_empty() {
+        // show all vars
+        let mut names = vars.get_names(EnvMode::USER);
+        names.sort();
+        for name in names {
+            if name == "history" {
+                continue;
+            }
+            show_scope(&name, EnvMode::LOCAL, streams, vars);
+            show_scope(&name, EnvMode::GLOBAL, streams, vars);
+            show_scope(&name, EnvMode::UNIVERSAL, streams, vars);
+
+            // Show the originally imported value as a debugging aid.
+            if let Some(inherited) = INHERITED_VARS.get().unwrap().get(&name) {
+                let escaped_val = escape_string(
+                    inherited,
+                    EscapeStringStyle::Script(EscapeFlags::NO_PRINTABLES | EscapeFlags::NO_QUOTED),
+                );
+                streams.out.append(&wgettext_fmt!(
+                    "$%ls: originally inherited as |%ls|\n",
+                    name,
+                    escaped_val
+                ));
+            }
+        }
+    } else {
+        for arg in args {
+            if !valid_var_name(arg) {
+                streams
+                    .err
+                    .append(&wgettext_fmt!(BUILTIN_ERR_VARNAME, cmd, arg));
+                builtin_print_error_trailer(parser, streams.err, cmd);
+                return STATUS_INVALID_ARGS;
+            }
+
+            if arg.contains('[') {
+                streams.err.append(&wgettext_fmt!(
+                    "%ls: `set --show` does not allow slices with the var names\n",
+                    cmd
+                ));
+                builtin_print_error_trailer(parser, streams.err, cmd);
+                return STATUS_CMD_ERROR;
+            }
+
+            show_scope(arg, EnvMode::LOCAL, streams, vars);
+            show_scope(arg, EnvMode::GLOBAL, streams, vars);
+            show_scope(arg, EnvMode::UNIVERSAL, streams, vars);
+            if let Some(inherited) = INHERITED_VARS.get().unwrap().get(arg) {
+                let escaped_val = escape_string(
+                    inherited,
+                    EscapeStringStyle::Script(EscapeFlags::NO_PRINTABLES | EscapeFlags::NO_QUOTED),
+                );
+                streams.out.append(&wgettext_fmt!(
+                    "$%ls: originally inherited as |%ls|\n",
+                    arg,
+                    escaped_val
+                ));
+            }
+        }
+    }
+
+    STATUS_CMD_OK
 }
 
+/// Return a list of new values for the variable \p varname, respecting the \p opts.
+/// The arguments are given as the argc, argv pair.
+/// This handles the simple case where there are no indexes.
+fn new_var_values(
+    varname: &wstr,
+    opts: &Options,
+    argv: &[WString],
+    vars: &dyn Environment,
+) -> Vec<WString> {
+    let mut result = vec![];
+    if !opts.prepend && !opts.append {
+        // Not prepending or appending.
+        result.extend_from_slice(argv);
+    } else {
+        // Note: when prepending or appending, we always use default scoping when fetching existing
+        // values. For example:
+        //   set --global var 1 2
+        //   set --local --append var 3 4
+        // This starts with the existing global variable, appends to it, and sets it locally.
+        // So do not use the given variable: we must re-fetch it.
+        // TODO: this races under concurrent execution.
+        if let Some(existing) = vars.get(varname) {
+            result = existing.as_list().to_owned();
+        }
+
+        if opts.prepend {
+            result.splice(0..0, argv.iter().cloned());
+        }
+
+        if opts.append {
+            result.extend_from_slice(argv);
+        }
+    }
+    result
+}
+
+/// This handles the more difficult case of setting individual slices of a var.
+fn new_var_values_by_index(split: &SplitVar, argv: &[WString]) -> Vec<WString> {
+    assert!(
+        argv.len() == split.indexes.len(),
+        "Must have the same number of indexes as arguments"
+    );
+
+    // Inherit any existing values.
+    // Note unlike the append/prepend case, we start with a variable in the same scope as we are
+    // setting.
+    let mut result = vec![];
+    if let Some(var) = split.var.as_ref() {
+        result = var.as_list().to_owned();
+    }
+
+    // For each (index, argument) pair, set the element in our \p result to the replacement string.
+    // Extend the list with empty strings as needed. The indexes are 1-based.
+    for (i, arg) in argv.iter().enumerate() {
+        let lidx = split.indexes[i];
+        assert!(lidx >= 1, "idx should have been verified in range already");
+        // Convert from 1-based to 0-based.
+        let idx = lidx - 1;
+        // Extend as needed with empty strings.
+        if idx >= result.len() {
+            result.resize(idx + 1, WString::new());
+            result[idx] = argv[i].clone();
+        }
+    }
+    result
+}
+
+/// Set a variable.
 fn set_internal(
     cmd: &wstr,
     opts: &Options,
     parser: &Parser,
+
     streams: &mut IoStreams<'_>,
-    args: &[WString],
+    argv: &[WString],
 ) -> Option<c_int> {
-    todo!()
+    if argv.is_empty() {
+        streams
+            .err
+            .append(&wgettext_fmt!(BUILTIN_ERR_MIN_ARG_COUNT1, cmd, 1));
+        builtin_print_error_trailer(parser, streams.err, cmd);
+        return STATUS_INVALID_ARGS;
+    }
+
+    let scope = compute_scope(opts);
+    let var_expr = &argv[0];
+    let argv = &argv[1..];
+
+    let Some(split) = split_var_and_indexes(var_expr, scope, parser.vars(), streams) else {
+        builtin_print_error_trailer(parser, streams.err, cmd);
+        return STATUS_INVALID_ARGS;
+    };
+
+    // Is the variable valid?
+    if !valid_var_name(split.varname) {
+        streams
+            .err
+            .append(&wgettext_fmt!(BUILTIN_ERR_VARNAME, cmd, split.varname));
+        if let Some(pos) = split.varname.chars().position(|c| c == '=') {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Did you mean `set %ls %ls`?",
+                cmd,
+                &escape(&split.varname[..pos]),
+                &escape(&split.varname[pos + 1..])
+            ));
+        }
+        builtin_print_error_trailer(parser, streams.err, cmd);
+        return STATUS_INVALID_ARGS;
+    }
+
+    // Setting with explicit indexes like `set foo[3] ...` has additional error handling.
+    if !split.indexes.is_empty() {
+        // Indexes must be > 0. (Note split_var_and_indexes negates negative values).
+
+        // Append and prepend are disallowed.
+        if opts.append || opts.prepend {
+            streams.err.append(&wgettext_fmt!(
+                "%ls: Cannot use --append or --prepend when assigning to a slice",
+                cmd
+            ));
+            builtin_print_error_trailer(parser, streams.err, cmd);
+            return STATUS_INVALID_ARGS;
+        }
+
+        // Argument count and index count must agree.
+        if split.indexes.len() != argv.len() {
+            streams.err.append(&wgettext_fmt!(
+                MISMATCHED_ARGS,
+                cmd,
+                split.indexes.len(),
+                argv.len()
+            ));
+            return STATUS_INVALID_ARGS;
+        }
+    }
+
+    let new_values = if split.indexes.is_empty() {
+        // Handle the simple, common, case. Set the var to the specified values.
+        new_var_values(split.varname, opts, argv, parser.vars())
+    } else {
+        // Handle the uncommon case of setting specific slices of a var.
+        new_var_values_by_index(&split, argv)
+    };
+
+    // Set the value back in the variable stack and fire any events.
+    let retval = env_set_reporting_errors(cmd, split.varname, scope, new_values, streams, parser);
+
+    if retval == EnvStackSetResult::ENV_OK {
+        warn_if_uvar_shadows_global(cmd, opts, split.varname, streams, parser);
+    }
+    env_result_to_status(retval)
 }
 
 /// The block builtin, used for temporarily blocking events.

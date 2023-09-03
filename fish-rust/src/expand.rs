@@ -391,7 +391,7 @@ fn expand_is_clean(input: &wstr) -> bool {
     }
 
     // Test characters that have a special meaning in any character position.
-    input.chars().any(|c| UNCLEAN.contains(c))
+    !input.chars().any(|c| UNCLEAN.contains(c))
 }
 
 /// Append a syntax error to the given error list.
@@ -974,7 +974,7 @@ pub fn expand_cmdsubst(
     match parse_util_locate_cmdsubst_range(
         &input,
         &mut cursor,
-        Some(subcmd),
+        Some(&mut subcmd),
         &mut paren_begin,
         &mut paren_end,
         false,

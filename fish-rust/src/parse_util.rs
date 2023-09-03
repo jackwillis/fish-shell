@@ -91,7 +91,7 @@ pub fn parse_util_slice_length(input: &wstr) -> Option<usize> {
 pub fn parse_util_locate_cmdsubst_range<'a>(
     s: &'a wstr,
     inout_cursor_offset: &mut usize,
-    mut out_contents: Option<&'a wstr>,
+    mut out_contents: Option<&mut &'a wstr>,
     out_start: &mut usize,
     out_end: &mut usize,
     accept_incomplete: bool,
@@ -99,7 +99,7 @@ pub fn parse_util_locate_cmdsubst_range<'a>(
     out_has_dollar: Option<&mut bool>,
 ) -> i32 {
     // Clear the return values.
-    out_contents.as_mut().map(|s| *s = L!(""));
+    out_contents.as_mut().map(|s| **s = L!(""));
     *out_start = 0;
     *out_end = s.len();
 
@@ -122,9 +122,11 @@ pub fn parse_util_locate_cmdsubst_range<'a>(
         return ret;
     }
 
+    // Assign the substring to the out_contents.
+    let interior_begin = *out_start + 1;
     out_contents
         .as_mut()
-        .map(|contents| *contents = &s[*out_start..*out_end]);
+        .map(|contents| **contents = &s[interior_begin..*out_end]);
 
     // Update the inout_cursor_offset. Note this may cause it to exceed str.size(), though
     // overflow is not likely.
@@ -201,7 +203,6 @@ fn parse_util_locate_cmdsub(
     let mut last_dollar = None;
     let mut paran_begin = None;
     let mut paran_end = None;
-
     fn process_opening_quote(
         input: &[char],
         inout_is_quoted: &mut Option<&mut bool>,
@@ -270,7 +271,7 @@ fn parse_util_locate_cmdsub(
                     paran_begin = Some(pos);
                     out_has_dollar
                         .as_mut()
-                        .map(|has_dollar| **has_dollar = last_dollar == Some(pos - 1));
+                        .map(|has_dollar| **has_dollar = last_dollar == Some(pos.wrapping_sub(1)));
                 }
 
                 paran_count += 1;
@@ -1272,7 +1273,7 @@ pub fn parse_util_detect_errors_in_argument(
 
     let mut cursor = 0;
     let mut checked = 0;
-    let subst = L!("");
+    let mut subst = L!("");
 
     let mut do_loop = true;
     let mut is_quoted = false;
@@ -1283,7 +1284,7 @@ pub fn parse_util_detect_errors_in_argument(
         match parse_util_locate_cmdsubst_range(
             arg_src,
             &mut cursor,
-            Some(subst),
+            Some(&mut subst),
             &mut paren_begin,
             &mut paren_end,
             false,
