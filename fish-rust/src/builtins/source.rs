@@ -110,7 +110,7 @@ pub fn source(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]
 
     let empty_io_chain = IoChain::new();
     let retval = reader_read_ffi(
-        &parser as *const _ as *const autocxx::c_void,
+        *parser as *const Parser as *const autocxx::c_void,
         unsafe { std::mem::transmute(fd) },
         if streams.io_chain.is_null() {
             unsafe { &*streams.io_chain }

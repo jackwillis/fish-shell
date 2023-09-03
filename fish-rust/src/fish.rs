@@ -713,7 +713,7 @@ fn main() -> i32 {
             return libc::EXIT_FAILURE;
         }
         res = ffi::reader_read_ffi(
-            &parser as *const _ as *const autocxx::c_void,
+            parser as *const Parser as *const autocxx::c_void,
             c_int(libc::STDIN_FILENO),
             &IoChain::new() as *const _ as *const autocxx::c_void,
         )
@@ -751,7 +751,7 @@ fn main() -> i32 {
                     Some(Arc::new(rel_filename.to_owned())),
                 );
                 res = ffi::reader_read_ffi(
-                    &parser as *const _ as *const autocxx::c_void,
+                    *parser as *const Parser as *const autocxx::c_void,
                     c_int(f.as_raw_fd()),
                     &IoChain::new() as *const _ as *const autocxx::c_void,
                 )

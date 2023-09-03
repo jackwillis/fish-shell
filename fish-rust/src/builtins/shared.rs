@@ -1012,7 +1012,7 @@ fn builtin_breakpoint(
         unsafe { &mut *streams.io_chain }
     };
     ffi::reader_read_ffi(
-        &parser as *const _ as *const autocxx::c_void,
+        parser as *const Parser as *const autocxx::c_void,
         autocxx::c_int(STDIN_FILENO),
         &io_chain as *const _ as *const autocxx::c_void,
     );
