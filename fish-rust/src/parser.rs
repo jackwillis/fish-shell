@@ -354,7 +354,7 @@ impl SharedFromThis<Parser> for Parser {
 impl Parser {
     /// Create a parser
     pub fn new(variables: EnvStackRef, is_principal: bool) -> ParserRef {
-        let variables_ffi = EnvStackRefFFI(Arc::clone(&variables));
+        let variables_ffi = EnvStackRefFFI(variables.clone());
         let mut result = Arc::new(Self {
             base: SharedFromThisBase::new(),
             execution_context: RefCell::new(None),

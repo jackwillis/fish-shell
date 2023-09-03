@@ -236,10 +236,10 @@ unsafe impl cxx::ExternType for EnvDynFFI {
 pub struct EnvStackRefFFI(pub EnvStackRef);
 
 lazy_static! {
-    static ref GLOBALS: EnvStackRefFFI = EnvStackRefFFI(Arc::clone(EnvStack::globals()));
+    static ref GLOBALS: EnvStackRefFFI = EnvStackRefFFI(EnvStack::globals().clone());
 }
 lazy_static! {
-    static ref PRINCIPAL_STACK: EnvStackRefFFI = EnvStackRefFFI(Arc::clone(EnvStack::principal()));
+    static ref PRINCIPAL_STACK: EnvStackRefFFI = EnvStackRefFFI(EnvStack::principal().clone());
 }
 
 fn env_stack_globals() -> &'static EnvStackRefFFI {
@@ -259,20 +259,20 @@ impl EnvStackRefFFI {
     }
 
     fn get(&self, name: &CxxWString) -> *mut EnvVar {
-        EnvironmentFFI::getf_ffi(self.0.as_ref(), name, 0)
+        EnvironmentFFI::getf_ffi(&*self.0, name, 0)
     }
     fn getf(&self, name: &CxxWString, mode: u16) -> *mut EnvVar {
-        EnvironmentFFI::getf_ffi(self.0.as_ref(), name, mode)
+        EnvironmentFFI::getf_ffi(&*self.0, name, mode)
     }
     fn get_unless_empty(&self, name: &CxxWString) -> *mut EnvVar {
-        EnvironmentFFI::getf_unless_empty_ffi(self.0.as_ref(), name, 0)
+        EnvironmentFFI::getf_unless_empty_ffi(&*self.0, name, 0)
     }
     fn getf_unless_empty(&self, name: &CxxWString, mode: u16) -> *mut EnvVar {
-        EnvironmentFFI::getf_unless_empty_ffi(self.0.as_ref(), name, mode)
+        EnvironmentFFI::getf_unless_empty_ffi(&*self.0, name, mode)
     }
 
     fn get_names(&self, flags: u16, out: Pin<&mut wcstring_list_ffi_t>) {
-        EnvironmentFFI::get_names_ffi(self.0.as_ref(), flags, out)
+        EnvironmentFFI::get_names_ffi(&*self.0, flags, out)
     }
     fn is_principal(&self) -> bool {
         self.0.is_principal()

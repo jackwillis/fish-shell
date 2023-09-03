@@ -35,6 +35,7 @@ use std::ffi::CStr;
 use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::unix::prelude::*;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 /// TODO: migrate to history once ported.
@@ -173,7 +174,7 @@ impl EnvStack {
 
     /// \return whether we are the principal stack.
     pub fn is_principal(&self) -> bool {
-        self as *const Self == Arc::as_ptr(&*PRINCIPAL_STACK)
+        self as *const Self == Self::principal().as_ref().get_ref() as *const Self
     }
 
     /// Helpers to get and set the proc statuses.
@@ -394,17 +395,17 @@ impl Environment for EnvStack {
     }
 }
 
-pub type EnvStackRef = Arc<EnvStack>;
+pub type EnvStackRef = Pin<Arc<EnvStack>>;
 
 // A variable stack that only represents globals.
 // Do not push or pop from this.
 lazy_static! {
-    static ref GLOBALS: EnvStackRef = Arc::new(EnvStack::new());
+    static ref GLOBALS: EnvStackRef = Arc::pin(EnvStack::new());
 }
 
 // Our singleton "principal" stack.
 lazy_static! {
-    static ref PRINCIPAL_STACK: EnvStackRef = Arc::new(EnvStack::new());
+    static ref PRINCIPAL_STACK: EnvStackRef = Arc::pin(EnvStack::new());
 }
 
 /// Some configuration path environment variables.

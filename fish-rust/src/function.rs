@@ -127,7 +127,7 @@ pub fn load(name: &wstr, parser: &Parser) -> bool {
         if funcset.allow_autoload(name) {
             if let Some(path) = funcset
                 .autoloader
-                .resolve_command(name, EnvStack::globals().as_ref())
+                .resolve_command(name, EnvStack::globals().as_ref().get_ref())
             {
                 path_to_autoload = Some(path);
             }

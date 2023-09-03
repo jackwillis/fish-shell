@@ -45,7 +45,7 @@ pub struct OperationContext<'a> {
 
 // todo!("later: add EnvNull type?");
 // static nullenv: Lazy<Arc<EnvNull>> = Lazy::new(|| Arc::new(EnvNull {}));
-static nullenv: Lazy<EnvStackRef> = Lazy::new(|| Arc::new(EnvStack::new()));
+static nullenv: Lazy<EnvStackRef> = Lazy::new(|| Arc::pin(EnvStack::new()));
 
 impl<'a> OperationContext<'a> {
     pub fn vars(&self) -> &dyn Environment {
