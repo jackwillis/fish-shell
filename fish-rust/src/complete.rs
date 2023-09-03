@@ -134,7 +134,7 @@ pub fn const_desc(s: &wstr) -> DescriptionFunc {
 pub type CompletionList = Vec<Completion>;
 
 /// This is an individual completion entry, i.e. the result of an expansion of a completion rule.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Completion {
     /// The completion string.
     pub completion: WString,

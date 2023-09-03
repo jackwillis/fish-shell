@@ -997,7 +997,7 @@ impl Job {
         FLOGF!(
             proc_job_run,
             "Run job %d (%ls), %ls, %ls",
-            self.job_id().to_wstring(),
+            self.job_id(),
             self.command(),
             if self.is_completed() {
                 "COMPLETED"

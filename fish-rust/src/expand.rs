@@ -17,6 +17,7 @@ use crate::complete::{
 };
 use crate::env::{EnvDynFFI, EnvStackRefFFI, EnvVar, Environment};
 use crate::exec::exec_subshell_for_expand;
+use crate::flog::FLOGF;
 use crate::history::{history_session_id, History};
 use crate::operation_context::OperationContext;
 use crate::parse_constants::{ParseError, ParseErrorCode, ParseErrorList, SOURCE_LOCATION_UNKNOWN};
@@ -613,13 +614,24 @@ fn expand_variables(
     // Locate the last VARIABLE_EXPAND or VARIABLE_EXPAND_SINGLE
     let mut is_single = false;
     let mut varexp_char_idx = last_idx;
-    while varexp_char_idx != 0 {
-        varexp_char_idx -= 1;
+    loop {
+        let done = varexp_char_idx == 0;
+        varexp_char_idx = varexp_char_idx.wrapping_sub(1);
+        if done {
+            break;
+        }
         let c = instr.as_char_slice()[varexp_char_idx];
         if [VARIABLE_EXPAND, VARIABLE_EXPAND_SINGLE].contains(&c) {
             is_single = c == VARIABLE_EXPAND_SINGLE;
             break;
         }
+    }
+    if varexp_char_idx == usize::MAX {
+        // No variable expand char, we're done.
+        if !out.add_string(instr) {
+            return append_overflow_error(errors, None);
+        }
+        return ExpandResult::ok();
     }
 
     // Get the variable name.
@@ -1651,7 +1663,7 @@ mod expand_ffi {
         type CompletionListFfi = crate::complete::CompletionListFfi;
     }
 
-    #[derive(Copy, Clone, Eq, PartialEq)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     pub enum ExpandResultCode {
         /// There was an error, for example, unmatched braces.
         error,
@@ -1666,6 +1678,7 @@ mod expand_ffi {
 
     /// These are the possible return values for expand_string.
     #[must_use]
+    #[derive(Debug)]
     pub struct ExpandResult {
         /// The result of expansion.
         pub result: ExpandResultCode,
