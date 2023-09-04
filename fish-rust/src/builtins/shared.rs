@@ -1036,7 +1036,7 @@ fn builtin_false(
     streams: &mut IoStreams<'_>,
     argv: &mut [WString],
 ) -> Option<c_int> {
-    STATUS_CMD_OK
+    STATUS_CMD_ERROR
 }
 
 fn builtin_gettext(
@@ -1047,6 +1047,7 @@ fn builtin_gettext(
     for arg in argv {
         // todo!("builtin: call gettext")
         streams.out.append(arg);
+        streams.out.push('\n');
     }
     STATUS_CMD_OK
 }

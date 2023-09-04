@@ -1358,7 +1358,9 @@ impl<'a> ParseExecutionContext {
     fn get_argument_nodes_no_redirs(args: &ast::ArgumentOrRedirectionList) -> AstArgsList<'_> {
         let mut result = AstArgsList::new();
         for arg in args {
-            result.push(arg.argument());
+            if arg.is_argument() {
+                result.push(arg.argument());
+            }
         }
         result
     }

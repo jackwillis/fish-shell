@@ -1095,7 +1095,11 @@ impl Job {
             return None;
         }
         st.status = if self.flags().negate {
-            !laststatus
+            if laststatus == 0 {
+                1
+            } else {
+                0
+            }
         } else {
             laststatus
         };

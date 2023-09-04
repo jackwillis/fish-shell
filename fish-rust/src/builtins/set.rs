@@ -1025,12 +1025,13 @@ fn set_internal(
 
 /// The block builtin, used for temporarily blocking events.
 pub fn set(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) -> Option<c_int> {
-    let opts = match Options::parse(args, parser, streams) {
-        Ok((opts, _)) => opts,
+    let (opts, optind) = match Options::parse(args, parser, streams) {
+        Ok(res) => res,
         Err(err) => return err,
     };
 
     let cmd = &args[0];
+    let args = &args[optind..];
 
     let retval = if opts.query {
         query(cmd, &opts, parser, streams, args)
