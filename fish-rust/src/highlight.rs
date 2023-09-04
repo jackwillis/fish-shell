@@ -708,7 +708,7 @@ fn range_is_potential_path(
 //
 // This is used only internally to this file, and is exposed only for testing.
 bitflags! {
-    #[derive(Default)]
+    #[derive(Clone, Copy, Default)]
     pub struct PathFlags: u8 {
         // The path must be to a directory.
         const PATH_REQUIRE_DIR = 1 << 0;

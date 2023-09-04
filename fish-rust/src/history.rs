@@ -1868,6 +1868,7 @@ impl History {
 
 bitflags! {
     /// Flags for history searching.
+    #[derive(Clone, Copy)]
     pub struct SearchFlags: u32 {
         /// If set, ignore case.
         const IGNORE_CASE = 1 << 0;

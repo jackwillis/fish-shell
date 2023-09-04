@@ -15,7 +15,56 @@ use crate::wcstringutil::count_preceding_backslashes;
 use crate::wildcard::wildcard_has;
 use cxx::{CxxWString, UniquePtr};
 use libc::SIGINT;
+use std::os::fd::RawFd;
 use std::sync::atomic::Ordering;
+
+#[derive(Default)]
+pub struct ReaderConfig {
+    /// Left prompt command, typically fish_prompt.
+    pub left_prompt_cmd: WString,
+
+    /// Right prompt command, typically fish_right_prompt.
+    pub right_prompt_cmd: WString,
+
+    /// Name of the event to trigger once we're set up.
+    pub event: &'static wstr,
+
+    /// Whether tab completion is OK.
+    pub complete_ok: bool,
+
+    /// Whether to perform syntax highlighting.
+    pub highlight_ok: bool,
+
+    /// Whether to perform syntax checking before returning.
+    pub syntax_check_ok: bool,
+
+    /// Whether to allow autosuggestions.
+    pub autosuggest_ok: bool,
+
+    /// Whether to expand abbreviations.
+    pub expand_abbrev_ok: bool,
+
+    /// Whether to exit on interrupt (^C).
+    pub exit_on_interrupt: bool,
+
+    /// If set, do not show what is typed.
+    pub in_silent_mode: bool,
+
+    /// The fd for stdin, default to actual stdin.
+    pub inputfd: RawFd,
+}
+
+pub fn reader_push(parser: &Parser, history_name: &wstr, conf: ReaderConfig) {
+    todo!()
+}
+
+pub fn reader_readline(nchars: usize) -> Option<Vec<u8>> {
+    todo!()
+}
+
+pub fn reader_pop() {
+    todo!()
+}
 
 /// This variable is set to a signal by the signal handler when ^C is pressed.
 static INTERRUPTED: AtomicI32 = AtomicI32::new(0);

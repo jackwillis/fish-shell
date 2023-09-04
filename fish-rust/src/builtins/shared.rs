@@ -26,8 +26,8 @@ use widestring_suffix::widestrs;
 pub type BuiltinCmd = fn(&Parser, &mut IoStreams<'_>, &mut [WString]) -> Option<c_int>;
 
 /// The default prompt for the read command.
-pub const DEFAULT_READ_PROMPT: &str =
-    "set_color green; echo -n read; set_color normal; echo -n \"> \"";
+pub const DEFAULT_READ_PROMPT: &wstr =
+    L!("set_color green; echo -n read; set_color normal; echo -n \"> \"");
 
 /// Error message on missing argument.
 pub const BUILTIN_ERR_MISSING: &str = "%ls: %ls: option requires an argument\n";

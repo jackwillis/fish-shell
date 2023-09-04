@@ -384,8 +384,8 @@ pub fn bool_from_string(x: &wstr) -> bool {
 pub fn split_about<'haystack>(
     haystack: &'haystack wstr,
     needle: &wstr,
-    max: usize,
-    no_empty: bool,
+    max: usize,     /*=usize::MAX*/
+    no_empty: bool, /*=false*/
 ) -> Vec<&'haystack wstr> {
     let mut output = vec![];
     let mut remaining = max;

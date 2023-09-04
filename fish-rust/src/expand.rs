@@ -35,7 +35,7 @@ use cxx::{CxxWString, UniquePtr};
 
 bitflags! {
     /// Set of flags controlling expansions.
-    #[derive(Default)]
+    #[derive(Copy, Clone, Default)]
     pub struct ExpandFlags : u16 {
         /// Skip command substitutions.
         const SKIP_CMDSUBST = 1 << 0;

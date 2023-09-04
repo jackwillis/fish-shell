@@ -47,7 +47,7 @@ fn arguments<'iter>(
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Copy, Clone, Default)]
     pub struct TypeFlags: u32 {
         /// A block device
         const BLOCK = 1 << 0;
@@ -86,7 +86,7 @@ impl TryFrom<&wstr> for TypeFlags {
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Copy, Clone, Default)]
     pub struct PermFlags: u32 {
         const READ = 1 << 0;
         const WRITE = 1 << 1;
