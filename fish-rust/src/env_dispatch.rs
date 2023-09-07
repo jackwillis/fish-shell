@@ -240,7 +240,7 @@ fn handle_term_size_change(vars: &EnvStack) {
 }
 
 fn handle_fish_history_change(vars: &EnvStack) {
-    let fish_history = vars.get(L!("fish_history"));
+    // let fish_history = vars.get(L!("fish_history"));
     let session_id = crate::history::history_session_id(vars);
     crate::ffi::reader_change_history(&*session_id.to_ffi());
 }

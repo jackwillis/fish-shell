@@ -427,8 +427,8 @@ fn split_var_and_indexes_internal<'a>(
 
     let mut res = SplitVar::default();
     let open_bracket = arg.find_char('[');
-    res.varname = open_bracket.map(|b| arg.slice_from(b)).unwrap_or(arg);
-    res.var = vars.get(res.varname);
+    res.varname = open_bracket.map(|b| &arg[..b]).unwrap_or(arg);
+    res.var = vars.getf(res.varname, mode);
     let Some(open_bracket) = open_bracket else {
         // Common case of no bracket
         return Ok(res);
@@ -606,7 +606,6 @@ fn erase(
     let mut ret = STATUS_CMD_OK;
     let scopes = compute_scope(opts);
     // `set -e` is allowed to be called with multiple scopes.
-    let mut bit = 0;
     for bit in (0..)
         .into_iter()
         .take_while(|bit| 1 << bit <= EnvMode::USER.bits())
@@ -674,13 +673,7 @@ fn env_result_to_status(retval: EnvStackSetResult) -> Option<c_int> {
 
 /// Print the names of all environment variables in the scope. It will include the values unless the
 /// `set --names` flag was used.
-fn list(
-    cmd: &wstr,
-    opts: &Options,
-    parser: &Parser,
-    streams: &mut IoStreams<'_>,
-    args: &[WString],
-) -> Option<c_int> {
+fn list(opts: &Options, parser: &Parser, streams: &mut IoStreams<'_>) -> Option<c_int> {
     use std::pin::Pin;
 
     let names_only = opts.list;
@@ -731,7 +724,7 @@ fn list(
 }
 
 fn show_scope(var_name: &wstr, scope: EnvMode, streams: &mut IoStreams, vars: &dyn Environment) {
-    let mut scope_name = match scope {
+    let scope_name = match scope {
         EnvMode::LOCAL => L!("local"),
         EnvMode::GLOBAL => L!("global"),
         EnvMode::UNIVERSAL => L!("universal"),
@@ -800,7 +793,6 @@ fn show_scope(var_name: &wstr, scope: EnvMode, streams: &mut IoStreams, vars: &d
 /// Show mode. Show information about the named variable(s).
 fn show(
     cmd: &wstr,
-    opts: &Options,
     parser: &Parser,
     streams: &mut IoStreams<'_>,
     args: &[WString],
@@ -931,7 +923,7 @@ fn new_var_values_by_index(split: &SplitVar, argv: &[WString]) -> Vec<WString> {
         // Extend as needed with empty strings.
         if idx >= result.len() {
             result.resize(idx + 1, WString::new());
-            result[idx] = argv[i].clone();
+            result[idx] = arg.clone();
         }
     }
     result
@@ -1038,11 +1030,11 @@ pub fn set(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) -
     } else if opts.erase {
         erase(cmd, &opts, parser, streams, args)
     } else if opts.list {
-        list(cmd, &opts, parser, streams, args)
+        list(&opts, parser, streams)
     } else if opts.show {
-        show(cmd, &opts, parser, streams, args)
+        show(cmd, parser, streams, args)
     } else if args.len() == 0 {
-        list(cmd, &opts, parser, streams, args)
+        list(&opts, parser, streams)
     } else {
         set_internal(cmd, &opts, parser, streams, args)
     };

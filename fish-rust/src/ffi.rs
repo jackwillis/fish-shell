@@ -68,6 +68,7 @@ include_cpp! {
     generate!("save_term_foreground_process_group")
     generate!("restore_term_foreground_process_group_for_exit")
     generate!("set_cloexec")
+    generate!("env_universal_notifier_t_default_notifier_post_notification_ffi")
 
     generate!("init_input")
 
@@ -89,7 +90,11 @@ include_cpp! {
     generate!("rgb_color_t")
     generate_pod!("color24_t")
     generate!("reader_status_count")
+    generate!("reader_push_ffi")
+    generate!("reader_readline_ffi")
+    generate!("reader_pop")
     generate!("commandline_get_state_history_ffi")
+    generate!("commandline_set_buffer_ffi")
     generate!("commandline_get_state_initialized_ffi")
     generate!("commandline_get_state_text_ffi")
     generate!("completion_apply_to_command_line")

@@ -359,7 +359,7 @@ impl Parser {
     /// Create a parser
     pub fn new(variables: EnvStackRef, is_principal: bool) -> ParserRef {
         let variables_ffi = EnvStackRefFFI(variables.clone());
-        let mut result = Arc::new(Self {
+        let result = Arc::new(Self {
             base: SharedFromThisBase::new(),
             execution_context: Box::new(ParseExecutionContext::default()),
             job_list: RefCell::new(vec![]),
@@ -574,7 +574,7 @@ impl Parser {
         op_ctx.cancel_checker = cancel_checker;
 
         // Create and set a new execution context.
-        let mut zelf = scoped_push_replacer(
+        let zelf = scoped_push_replacer(
             self,
             |zelf, new_value| ParseExecutionContext::replace(&zelf.execution_context, new_value),
             Box::new(ParseExecutionContext::new(ps.clone(), block_io.clone())),
@@ -655,7 +655,7 @@ impl Parser {
             return WString::new();
         };
 
-        let lineno = self.get_lineno().unwrap_or(0) as i32; // TODO fix lineno_or_minus_1
+        let lineno = self.get_lineno().unwrap_or(0);
         let file = self.current_filename();
 
         let mut prefix = WString::new();
@@ -931,7 +931,7 @@ impl Parser {
     pub fn emit_profiling(&self, path: &[u8]) {
         // Save profiling information. OK to not use CLO_EXEC here because this is called while fish is
         // exiting (and hence will not fork).
-        let mut f = match std::fs::File::create(OsStr::from_bytes(path)) {
+        let f = match std::fs::File::create(OsStr::from_bytes(path)) {
             Ok(f) => f,
             Err(err) => {
                 FLOGF!(
@@ -1117,7 +1117,7 @@ fn print_profile(items: &[ProfileItem], out: RawFd) {
         }
 
         fwprintf!(out, "%lld\t%lld\t", self_time, total_time);
-        for i in 0..item.level {
+        for _i in 0..item.level {
             fwprintf!(out, "-");
         }
 
@@ -1189,7 +1189,7 @@ fn append_block_description_to_stack_trace(parser: &Parser, b: &Block, trace: &m
         if let Some(file) = b.src_filename.as_ref() {
             trace.push_utfstr(&sprintf!(
                 "\tcalled on line %d of file %ls\n",
-                b.src_lineno.unwrap(),
+                lineno_or_minus_1(b.src_lineno.unwrap_or(0)),
                 user_presentable_path(file, parser.vars())
             ));
         } else if parser.libdata().pods.within_fish_init {
@@ -1198,12 +1198,13 @@ fn append_block_description_to_stack_trace(parser: &Parser, b: &Block, trace: &m
     }
 }
 
-pub fn lineno_or_minus_1(lineno: i32) -> isize {
-    // TODO lineno should be Option<usize>
+pub fn lineno_or_minus_1(lineno: usize) -> isize {
+    // todo!("later: lineno should be Option<usize>")
+    let lineno = lineno.try_into().unwrap();
     if lineno == 0 {
         -1
     } else {
-        lineno as _
+        lineno
     }
 }
 
@@ -1418,7 +1419,7 @@ impl LibraryData {
     fn transient_commandlines_push(&mut self, s: &CxxWString) {
         self.transient_commandlines.push(s.from_ffi());
     }
-    fn transient_commandlines_pop(&mut self, s: &CxxWString) {
+    fn transient_commandlines_pop(&mut self) {
         self.transient_commandlines.pop();
     }
 }

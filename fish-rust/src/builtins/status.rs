@@ -470,7 +470,7 @@ pub fn status(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]
                     // See issue #4161.
                     // streams.out.append_format(L"%d\n", parser.get_lineno(opts.level));
                     streams.out.appendln_owned(
-                        lineno_or_minus_1(parser.get_lineno().unwrap_or(0) as _).to_wstring(),
+                        lineno_or_minus_1(parser.get_lineno().unwrap_or(0)).to_wstring(),
                     );
                 }
                 STATUS_IS_INTERACTIVE => {

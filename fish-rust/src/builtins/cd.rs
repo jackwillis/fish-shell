@@ -87,7 +87,7 @@ pub fn cd(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) ->
         errno::set_errno(Errno(0));
 
         // We need to keep around the fd for this directory, in the parser.
-        let mut dir_fd = Rc::new(AutoCloseFd::new(wopen_cloexec(&norm_dir, O_RDONLY, 0)));
+        let dir_fd = Rc::new(AutoCloseFd::new(wopen_cloexec(&norm_dir, O_RDONLY, 0)));
 
         if !(dir_fd.is_valid() && unsafe { fchdir(dir_fd.fd()) } == 0) {
             // Some errors we skip and only report if nothing worked.

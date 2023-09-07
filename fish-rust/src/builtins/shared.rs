@@ -252,7 +252,7 @@ const BUILTIN_DATAS: &[BuiltinData] = &[
     },
     BuiltinData {
         name: "function"L,
-        func: function::builtin_function,
+        func: builtin_generic,
     },
     BuiltinData {
         name: "functions"L,
@@ -890,7 +890,7 @@ fn builtin_generic(
 const COUNT_CHUNK_SIZE: usize = 512 * 256;
 /// Implementation of the builtin count command, used to count the number of arguments sent to it.
 fn builtin_count(
-    parser: &Parser,
+    _parser: &Parser,
     streams: &mut IoStreams<'_>,
     argv: &mut [WString],
 ) -> Option<c_int> {
@@ -1024,27 +1024,27 @@ fn builtin_breakpoint(
 }
 
 fn builtin_true(
-    parser: &Parser,
-    streams: &mut IoStreams<'_>,
-    argv: &mut [WString],
+    _parser: &Parser,
+    _streams: &mut IoStreams<'_>,
+    _argv: &mut [WString],
 ) -> Option<c_int> {
     STATUS_CMD_OK
 }
 
 fn builtin_false(
-    parser: &Parser,
-    streams: &mut IoStreams<'_>,
-    argv: &mut [WString],
+    _parser: &Parser,
+    _streams: &mut IoStreams<'_>,
+    _argv: &mut [WString],
 ) -> Option<c_int> {
     STATUS_CMD_ERROR
 }
 
 fn builtin_gettext(
-    parser: &Parser,
+    _parser: &Parser,
     streams: &mut IoStreams<'_>,
     argv: &mut [WString],
 ) -> Option<c_int> {
-    for arg in argv {
+    for arg in &argv[1..] {
         // todo!("builtin: call gettext")
         streams.out.append(arg);
         streams.out.push('\n');

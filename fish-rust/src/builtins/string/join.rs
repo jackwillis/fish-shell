@@ -30,7 +30,7 @@ impl<'args> StringSubCommand<'args> for Join<'args> {
         L!(":qn")
     }
 
-    fn parse_opt(&mut self, w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
+    fn parse_opt(&mut self, _w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
         match c {
             'q' => self.quiet = true,
             'n' => self.no_empty = true,

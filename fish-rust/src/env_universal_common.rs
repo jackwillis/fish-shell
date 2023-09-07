@@ -144,7 +144,7 @@ impl EnvUniversal {
                 }
                 entry.insert(var);
             }
-            Entry::Vacant(mut entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(var);
             }
         };
@@ -280,7 +280,7 @@ impl EnvUniversal {
         // Decide on the format.
         let format = Self::format_for_contents(s);
 
-        let mut iter = LineIterator::new(s);
+        let iter = LineIterator::new(s);
         let mut wide_line = WString::new();
         let mut storage = WString::new();
         for line in iter {
@@ -291,9 +291,9 @@ impl EnvUniversal {
 
             // Convert to UTF8.
             wide_line.clear();
-            let Ok(narrow_line) = std::str::from_utf8(line) else {
+            if std::str::from_utf8(line).is_err() {
                 continue;
-            };
+            }
             wide_line = str2wcstring(line);
 
             match format {
@@ -316,7 +316,7 @@ impl EnvUniversal {
     /// \return the format corresponding to file contents \p s.
     pub fn format_for_contents(s: &[u8]) -> UvarFormat {
         // Walk over leading comments, looking for one like '# version'
-        let mut iter = LineIterator::new(s);
+        let iter = LineIterator::new(s);
         for line in iter {
             if line.is_empty() {
                 continue;
@@ -361,7 +361,7 @@ impl EnvUniversal {
 
         // Preserve legacy behavior by sorting the values first
         // todo!("later: This used to not copy (via std::reference_wrapper)");
-        let mut cloned: Vec<WString> = vars.iter().map(|(key, var)| key.clone()).collect();
+        let mut cloned: Vec<WString> = vars.iter().map(|(key, _var)| key.clone()).collect();
         cloned.sort();
 
         for key in cloned {
@@ -524,7 +524,7 @@ impl EnvUniversal {
         let tmp_name_template = directory.to_owned() + L!("/fishd.tmp.XXXXXX");
         let mut result = AutoCloseFd::empty();
         let mut narrow_str = CString::default();
-        for attempt in 0..10 {
+        for _attempt in 0..10 {
             if result.is_valid() {
                 break;
             }
@@ -914,7 +914,7 @@ pub fn default_notifier() -> &'static dyn UniversalNotifier {
 }
 
 /// Factory constructor.
-fn new_notifier_for_strategy(strat: NotifierStrategy, test_path: Option<&wstr>) {
+fn new_notifier_for_strategy(_strat: NotifierStrategy, _test_path: Option<&wstr>) {
     todo!("later: universal notifier");
 }
 
@@ -1152,7 +1152,7 @@ impl UniversalNotifierFFI {
     fn notification_fd(&self) -> RawFd {
         todo!("later: universal notifier")
     }
-    fn notification_fd_became_readable(&self, fd: RawFd) -> bool {
+    fn notification_fd_became_readable(&self, _fd: RawFd) -> bool {
         todo!("later: universal notifier")
     }
 }

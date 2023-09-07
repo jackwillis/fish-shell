@@ -20,7 +20,7 @@ impl StringSubCommand<'_> for Length {
         L!(":qV")
     }
 
-    fn parse_opt(&mut self, w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
+    fn parse_opt(&mut self, _w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
         match c {
             'q' => self.quiet = true,
             'V' => self.visible = true,

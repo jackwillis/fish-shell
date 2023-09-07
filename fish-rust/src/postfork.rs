@@ -128,7 +128,7 @@ pub fn execute_setpgid(pid: pid_t, pgroup: pid_t, is_parent: bool) -> c_int {
 /// parent only.
 pub fn report_setpgid_error(
     err: c_int,
-    is_parent: bool,
+    _is_parent: bool,
     desired_pgid: pid_t,
     j: &Job,
     p: &Process,
@@ -162,8 +162,10 @@ pub fn report_setpgid_error(
     if is_windows_subsystem_for_linux() && errno().0 == EPERM {
         FLOGF_SAFE!(
             warning,
-            concat!("Please update to Windows 10 1809/17763 or higher to address known issues "
-                   "with process groups and zombie processes.")
+            concat!(
+                "Please update to Windows 10 1809/17763 or higher to address known issues ",
+                "with process groups and zombie processes."
+            )
         );
     }
 

@@ -174,7 +174,7 @@ impl SeparatedBuffer {
 }
 
 /// Describes what type of IO operation an io_data_t represents.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IoMode {
     file,
     pipe,
@@ -583,8 +583,6 @@ fn begin_filling(iobuffer: &Arc<IoBuffer>, fd: AutoCloseFd) {
         let iobuffer = iobuffer.clone();
         Some(Box::new(
             move |fd: &mut AutoCloseFd, reason: ItemWakeReason| {
-                let (mutex, condvar) = &*promise;
-
                 // Only check the shutdown flag if we timed out or were poked.
                 // It's important that if select() indicated we were readable, that we call select() again
                 // allowing it to time out. Note the typical case is that the fd will be closed, in which

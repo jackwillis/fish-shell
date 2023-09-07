@@ -258,8 +258,7 @@ fn read_from_fd(fd: RawFd, dest: &mut [u8]) -> bool {
     let mut remaining = dest.len();
     let mut read = 0;
     while remaining > 0 {
-        let mut amt =
-            unsafe { libc::read(fd, (&mut dest[read]) as *mut u8 as *mut c_void, remaining) };
+        let amt = unsafe { libc::read(fd, (&mut dest[read]) as *mut u8 as *mut c_void, remaining) };
         if amt < 0 {
             if errno().0 != EINTR {
                 return false;
@@ -371,8 +370,6 @@ fn extract_prefix_and_unescape_yaml(line: &str) -> Option<(String, String)> {
 
 /// Decode an item via the fish 2.0 format.
 fn decode_item_fish_2_0(mut data: &[u8]) -> Option<HistoryItem> {
-    let mut cursor = 0;
-
     let (advance, line) = read_line(data);
     let line = line.trim_start();
     let Some((key, value)) = extract_prefix_and_unescape_yaml(line) else {

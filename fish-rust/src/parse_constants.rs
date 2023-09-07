@@ -4,7 +4,6 @@ use crate::fallback::{fish_wcswidth, fish_wcwidth};
 use crate::ffi::wcharz_t;
 use crate::tokenizer::variable_assignment_equals_pos;
 use crate::wchar::prelude::*;
-use crate::wchar_ffi::wcharz_t;
 use crate::wchar_ffi::{AsWstr, WCharFromFFI, WCharToFFI};
 use bitflags::bitflags;
 use cxx::{type_id, ExternType};
@@ -120,6 +119,7 @@ mod parse_constants_ffi {
     }
 
     // Parse error code list.
+    #[derive(Debug)]
     pub enum ParseErrorCode {
         none,
 
@@ -357,7 +357,7 @@ impl Default for ParseErrorCode {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ParseError {
     /// Text of the error.
     pub text: WString,

@@ -1056,7 +1056,7 @@ pub fn parse_util_detect_errors_in_ast(
         if let Some(jc) = node.as_job_continuation() {
             // Somewhat clumsy way of checking for a statement without source in a pipeline.
             // See if our pipe has source but our statement does not.
-            if jc.pipe.has_source() && jc.statement.try_source_range().is_some() {
+            if jc.pipe.has_source() && jc.statement.try_source_range().is_none() {
                 has_unclosed_pipe = true;
             }
         } else if let Some(jcc) = node.as_job_conjunction_continuation() {

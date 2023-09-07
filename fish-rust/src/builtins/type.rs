@@ -121,7 +121,7 @@ pub fn r#type(parser: &Parser, streams: &mut IoStreams<'_>, argv: &mut [WString]
                         } else if path == L!("-") {
                             comment.push_utfstr(&wgettext_fmt!(", copied via `source`"));
                         } else {
-                            let lineno: i32 = props.copy_definition_lineno();
+                            let lineno = props.copy_definition_lineno() as usize;
                             comment.push_utfstr(&wgettext_fmt!(
                                 ", copied in %ls @ line %d",
                                 path,

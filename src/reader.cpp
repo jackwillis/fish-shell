@@ -169,6 +169,10 @@ void commandline_set_buffer(wcstring text, size_t cursor_pos) {
     state->text = std::move(text);
 }
 
+void commandline_set_buffer_ffi(const wcstring &text, size_t cursor_pos) {
+    commandline_set_buffer(text, cursor_pos);
+}
+
 /// Any time the contents of a buffer changes, we update the generation count. This allows for our
 /// background threads to notice it and skip doing work that they would otherwise have to do.
 static std::atomic<uint32_t> s_generation;
@@ -3013,6 +3017,24 @@ void reader_push(const parser_t &parser, const wcstring &history_name, reader_co
     (void)reader_push_ret(parser, history_name, std::move(conf));
 }
 
+void reader_push_ffi(const void *_parser, const wcstring &history_name, const void *_conf_ffi) {
+    const auto &parser = *static_cast<const parser_t *>(_parser);
+    const auto &conf_ffi = *static_cast<const ReaderConfig *>(_conf_ffi);
+    reader_config_t conf;
+    conf.left_prompt_cmd = std::move(*conf_ffi.left_prompt_cmd());
+    conf.right_prompt_cmd = std::move(*conf_ffi.right_prompt_cmd());
+    conf.event = std::move(*conf_ffi.event());
+    conf.complete_ok = conf_ffi.complete_ok();
+    conf.highlight_ok = conf_ffi.highlight_ok();
+    conf.syntax_check_ok = conf_ffi.syntax_check_ok();
+    conf.autosuggest_ok = conf_ffi.autosuggest_ok();
+    conf.expand_abbrev_ok = conf_ffi.expand_abbrev_ok();
+    conf.exit_on_interrupt = conf_ffi.exit_on_interrupt();
+    conf.in_silent_mode = conf_ffi.in_silent_mode();
+    conf.in = conf_ffi.inputfd();
+    reader_push(parser, history_name, std::move(conf));
+}
+
 void reader_pop() {
     assert(!reader_data_stack.empty() && "empty stack in reader_data_stack");
     reader_data_stack.pop_back();
@@ -4678,6 +4700,14 @@ maybe_t<wcstring> reader_readline(int nchars) {
     // Apply any outstanding commandline changes (#8633).
     data->apply_commandline_state_changes();
     return data->readline(nchars);
+}
+
+bool reader_readline_ffi(wcstring &line, size_t nchars) {
+    if (auto result = reader_readline(nchars)) {
+        line = std::move(*result);
+        return true;
+    }
+    return {};
 }
 
 int reader_reading_interrupted() {

@@ -5,6 +5,7 @@ use crate::complete::{CompleteFlags, CompletionList};
 use crate::env::{EnvDyn, EnvDynFFI};
 use crate::env::{EnvStackRefFFI, Environment, EnvironmentRef};
 use crate::expand::{expand_string, ExpandFlags, ExpandResultCode};
+use crate::ffi;
 use crate::global_safety::RelaxedAtomicBool;
 use crate::operation_context::OperationContext;
 use crate::parser::Parser;
@@ -55,15 +56,24 @@ pub struct ReaderConfig {
 }
 
 pub fn reader_push(parser: &Parser, history_name: &wstr, conf: ReaderConfig) {
-    todo!()
+    ffi::reader_push_ffi(
+        parser as *const Parser as *const autocxx::c_void,
+        &*history_name.to_ffi(),
+        &conf as *const ReaderConfig as *const autocxx::c_void,
+    );
 }
 
-pub fn reader_readline(nchars: usize) -> Option<Vec<u8>> {
-    todo!()
+pub fn reader_readline(nchars: usize) -> Option<WString> {
+    let mut line = L!("").to_ffi();
+    if ffi::reader_readline_ffi(line.pin_mut(), nchars) {
+        Some(line.from_ffi())
+    } else {
+        None
+    }
 }
 
 pub fn reader_pop() {
-    todo!()
+    ffi::reader_pop()
 }
 
 /// This variable is set to a signal by the signal handler when ^C is pressed.
@@ -231,8 +241,68 @@ mod reader_ffi {
             result: &mut UniquePtr<CxxWString>,
         ) -> u8;
     }
+    extern "Rust" {
+        type ReaderConfig;
+        #[cxx_name = "left_prompt_cmd"]
+        fn left_prompt_cmd_ffi(&self) -> UniquePtr<CxxWString>;
+        #[cxx_name = "right_prompt_cmd"]
+        fn right_prompt_cmd_ffi(&self) -> UniquePtr<CxxWString>;
+        #[cxx_name = "event"]
+        fn event_ffi(&self) -> UniquePtr<CxxWString>;
+        #[cxx_name = "complete_ok"]
+        fn complete_ok_ffi(&self) -> bool;
+        #[cxx_name = "highlight_ok"]
+        fn highlight_ok_ffi(&self) -> bool;
+        #[cxx_name = "syntax_check_ok"]
+        fn syntax_check_ok_ffi(&self) -> bool;
+        #[cxx_name = "autosuggest_ok"]
+        fn autosuggest_ok_ffi(&self) -> bool;
+        #[cxx_name = "expand_abbrev_ok"]
+        fn expand_abbrev_ok_ffi(&self) -> bool;
+        #[cxx_name = "exit_on_interrupt"]
+        fn exit_on_interrupt_ffi(&self) -> bool;
+        #[cxx_name = "in_silent_mode"]
+        fn in_silent_mode_ffi(&self) -> bool;
+        #[cxx_name = "inputfd"]
+        fn inputfd_ffi(&self) -> i32;
+    }
 }
 
+impl ReaderConfig {
+    fn left_prompt_cmd_ffi(&self) -> UniquePtr<CxxWString> {
+        self.left_prompt_cmd.to_ffi()
+    }
+    fn right_prompt_cmd_ffi(&self) -> UniquePtr<CxxWString> {
+        self.right_prompt_cmd.to_ffi()
+    }
+    fn event_ffi(&self) -> UniquePtr<CxxWString> {
+        self.event.to_ffi()
+    }
+    fn complete_ok_ffi(&self) -> bool {
+        self.complete_ok
+    }
+    fn highlight_ok_ffi(&self) -> bool {
+        self.highlight_ok
+    }
+    fn syntax_check_ok_ffi(&self) -> bool {
+        self.syntax_check_ok
+    }
+    fn autosuggest_ok_ffi(&self) -> bool {
+        self.autosuggest_ok
+    }
+    fn expand_abbrev_ok_ffi(&self) -> bool {
+        self.expand_abbrev_ok
+    }
+    fn exit_on_interrupt_ffi(&self) -> bool {
+        self.exit_on_interrupt
+    }
+    fn in_silent_mode_ffi(&self) -> bool {
+        self.in_silent_mode
+    }
+    fn inputfd_ffi(&self) -> i32 {
+        self.inputfd as _
+    }
+}
 fn try_expand_wildcard_ffi(
     parser: &Parser,
     wc: &CxxWString,

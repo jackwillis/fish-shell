@@ -639,11 +639,11 @@ impl<'ctx> Completer<'ctx> {
         }
     }
 
-    pub fn perform_for_commandline(&mut self, mut cmdline: WString) {
+    pub fn perform_for_commandline(&mut self, cmdline: WString) {
         // Limit recursion, in case a user-defined completion has cycles, or the completion for "x"
         // wraps "A=B x" (#3474, #7344).  No need to do that when there is no parser: this happens only
         // for autosuggestions where we don't evaluate command substitutions or variable assignments.
-        let decrement = if let Some(parser) = self.ctx.maybe_parser() {
+        let _decrement = if let Some(parser) = self.ctx.maybe_parser() {
             let level = &mut parser.libdata_mut().pods.complete_recursion_level;
             if *level >= 24 {
                 FLOGF!(
@@ -845,7 +845,7 @@ impl<'ctx> Completer<'ctx> {
         }
 
         // Maybe apply variable assignments.
-        let restore_vars =
+        let _restore_vars =
             self.apply_var_assignments(var_assignments.iter().map(|s| s.as_utfstr()));
         if self.ctx.check_cancel() {
             return;
@@ -886,7 +886,7 @@ impl<'ctx> Completer<'ctx> {
             entry
         } else {
             // Compute new value and reinsert it.
-            let mut test_res = exec_subshell(
+            let test_res = exec_subshell(
                 condition, &parser, None, false, /* don't apply exit status */
             ) == 0;
             self.condition_cache.insert(condition.to_owned(), test_res);
@@ -1904,7 +1904,7 @@ impl<'ctx> Completer<'ctx> {
         }
 
         // Maybe apply variable assignments.
-        let restore_vars =
+        let _restore_vars =
             self.apply_var_assignments(ad.var_assignments.iter().map(WString::as_utfstr));
         if self.ctx.check_cancel() {
             return;

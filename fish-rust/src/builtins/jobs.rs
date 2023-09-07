@@ -195,7 +195,7 @@ pub fn jobs(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
 
     if w.woptind < argc {
         for arg in &w.argv()[w.woptind..] {
-            let mut j;
+            let j;
             if arg.char_at(0) == '%' {
                 match fish_wcstoi(&arg[1..]).ok().and_then(|job_id| {
                     if job_id < 0 {

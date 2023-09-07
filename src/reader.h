@@ -201,6 +201,8 @@ int reader_reading_interrupted();
 /// commandline.
 maybe_t<wcstring> reader_readline(int nchars);
 
+bool reader_readline_ffi(wcstring &line, size_t nchars);
+
 /// Configuration that we provide to a reader.
 struct reader_config_t {
     /// Left prompt command, typically fish_prompt.
@@ -243,6 +245,8 @@ bool check_exit_loop_maybe_warning(reader_data_t *data);
 /// Push a new reader environment controlled by \p conf, using the given history name.
 /// If \p history_name is empty, then save history in-memory only; do not write it to disk.
 void reader_push(const parser_t &parser, const wcstring &history_name, reader_config_t &&conf);
+
+void reader_push_ffi(const void *parser, const wcstring &history_name, const void *conf);
 
 /// Return to previous reader environment.
 void reader_pop();
@@ -292,6 +296,7 @@ wcstring commandline_get_state_text_ffi();
 /// Set the command line text and position. This may be called on a background thread; the reader
 /// will pick it up when it is done executing.
 void commandline_set_buffer(wcstring text, size_t cursor_pos = -1);
+void commandline_set_buffer_ffi(const wcstring &text, size_t cursor_pos);
 
 /// Return the current interactive reads loop count. Useful for determining how many commands have
 /// been executed between invocations of code.

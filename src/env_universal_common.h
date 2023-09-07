@@ -89,4 +89,6 @@ class universal_notifier_t {
 
 wcstring get_runtime_path();
 
+void env_universal_notifier_t_default_notifier_post_notification_ffi();
+
 #endif

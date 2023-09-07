@@ -30,7 +30,7 @@ impl<'args> StringSubCommand<'args> for Replace<'args> {
         L!(":afiqr")
     }
 
-    fn parse_opt(&mut self, w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
+    fn parse_opt(&mut self, _w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
         match c {
             'a' => self.all = true,
             'f' => self.filter = true,

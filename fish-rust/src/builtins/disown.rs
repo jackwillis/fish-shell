@@ -53,7 +53,6 @@ fn disown_job(cmd: &wstr, streams: &mut IoStreams<'_>, j: &Job) {
 
 /// Builtin for removing jobs from the job list.
 pub fn disown(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) -> Option<c_int> {
-    let argc = args.len();
     let opts = match HelpOnlyCmdOpts::parse(args, parser, streams) {
         Ok(opts) => opts,
         Err(err @ Some(_)) if err != STATUS_CMD_OK => return err,

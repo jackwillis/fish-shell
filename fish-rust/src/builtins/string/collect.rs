@@ -18,7 +18,7 @@ impl StringSubCommand<'_> for Collect {
         L!(":Na")
     }
 
-    fn parse_opt(&mut self, w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
+    fn parse_opt(&mut self, _w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
         match c {
             'a' => self.allow_empty = true,
             'N' => self.no_trim_newlines = true,

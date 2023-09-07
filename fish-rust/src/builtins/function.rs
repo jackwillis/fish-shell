@@ -250,14 +250,6 @@ fn validate_function_name(
     STATUS_CMD_OK
 }
 
-pub fn builtin_function(
-    parser: &Parser,
-    streams: &mut IoStreams<'_>,
-    argv: &mut [WString],
-) -> Option<c_int> {
-    todo!("builtin")
-}
-
 /// Define a function. Calls into `function.rs` to perform the heavy lifting of defining a
 /// function. Note this isn't strictly a "builtin": it is called directly from parse_execution.
 /// That is why its signature is different from the other builtins.

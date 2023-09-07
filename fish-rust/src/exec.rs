@@ -95,7 +95,7 @@ pub fn exec_job(parser: &Parser, job: &Job, block_io: &IoChain) -> bool {
         }
         return false;
     }
-    let timer = push_timer(job.wants_timing() && !no_exec());
+    let _timer = push_timer(job.wants_timing() && !no_exec());
 
     // Get the deferred process, if any. We will have to remember its pipes.
     let mut deferred_pipes = AutoClosePipes::default();
@@ -384,7 +384,7 @@ pub fn is_thompson_shell_script(path: &CStr) -> bool {
 /// after \c child_setup_process. It calls execve to replace the fish process image with the command
 /// specified in \c p. It never returns. Called in a forked child! Do not allocate memory, etc.
 fn safe_launch_process(
-    p: &Process,
+    _p: &Process,
     actual_cmd: &CStr,
     argv: &impl AsNullTerminatedArray<CharType = c_char>,
     envv: &impl AsNullTerminatedArray<CharType = c_char>,
@@ -814,11 +814,11 @@ fn exec_external_command(
     let envv = parser.vars().export_array();
 
     let actual_cmd = wcs2zstring(&p.actual_cmd);
-    let file = &parser.libdata().current_filename;
 
     #[cfg(FISH_USE_POSIX_SPAWN)]
     // Prefer to use posix_spawn, since it's faster on some systems like OS X.
     if can_use_posix_spawn_for_job(j, dup2s) {
+        let file = &parser.libdata().current_filename;
         let count = FORK_COUNT.fetch_add(1, Ordering::Relaxed) + 1; // spawn counts as a fork+exec
 
         let mut spawner: PosixSpawner::new(j, dup2s);
@@ -888,7 +888,6 @@ fn function_prepare_environment(
     // 2. inherited variables
     // 3. argv
 
-    let mut idx = 0;
     for (idx, named_arg) in props.named_arguments.iter().enumerate() {
         if idx < argv.len() {
             vars.set_one(named_arg, EnvMode::LOCAL | EnvMode::USER, argv[idx].clone());
@@ -1077,12 +1076,12 @@ fn get_performer_for_builtin(p: &Process, j: &Job, io_chain: &IoChain) -> Box<Pr
     // thread.
     Box::new(
         move |parser: &Parser,
-              p: &Process,
+              _p: &Process,
               output_stream: Option<&mut dyn OutputStream>,
               errput_stream: Option<&mut dyn OutputStream>| {
             let output_stream = output_stream.unwrap();
             let errput_stream = errput_stream.unwrap();
-            let out_io = io_chain.io_for_fd(STDIN_FILENO);
+            let out_io = io_chain.io_for_fd(STDOUT_FILENO);
             let err_io = io_chain.io_for_fd(STDERR_FILENO);
 
             // Figure out what fd to use for the builtin's stdin.
@@ -1371,7 +1370,7 @@ fn populate_subshell_output(lst: &mut Vec<WString>, buffer: &SeparatedBuffer, sp
                 let stop = data[cursor..].iter().position(|c| *c == b'\n');
                 let hit_separator = stop.is_some();
                 // If it's not found, just use the end.
-                let stop = stop.unwrap_or(data.len());
+                let stop = stop.map(|rel| cursor + rel).unwrap_or(data.len());
                 // Stop now points at the first character we do not want to copy.
                 lst.push(str2wcstring(&data[cursor..stop]));
 

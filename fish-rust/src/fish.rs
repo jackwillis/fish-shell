@@ -332,7 +332,7 @@ fn run_command_list(parser: &Parser, cmds: &[OsString]) -> i32 {
         } else {
             let backtrace = parser.get_backtrace(&cmd_wcs, &errors);
             // fwprint! does not seem to work?
-            eprint!("{}", backtrace);
+            crate::flog::FLOG!(error, "BT", backtrace);
             // XXX: Why is this the return for "unknown command"?
             retval = STATUS_CMD_UNKNOWN;
         }

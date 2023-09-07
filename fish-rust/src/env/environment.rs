@@ -329,7 +329,7 @@ impl EnvStack {
         let mut callbacks = CallbackDataList::new();
         let changed = uvars().sync(&mut callbacks);
         if changed {
-            env_universal_common::default_notifier().post_notification();
+            ffi::env_universal_notifier_t_default_notifier_post_notification_ffi();
         }
         // React internally to changes to special variables like LANG, and populate on-variable events.
         let mut result = Vec::new();
@@ -817,12 +817,12 @@ pub mod test {
         pub vars: HashMap<WString, WString>,
     }
     impl Environment for TestEnvironment {
-        fn getf(&self, name: &wstr, mode: EnvMode) -> Option<EnvVar> {
+        fn getf(&self, name: &wstr, _mode: EnvMode) -> Option<EnvVar> {
             self.vars
                 .get(name)
                 .map(|value| EnvVar::new(value.clone(), EnvVarFlags::default()))
         }
-        fn get_names(&self, flags: EnvMode) -> Vec<WString> {
+        fn get_names(&self, _flags: EnvMode) -> Vec<WString> {
             self.vars.keys().cloned().collect()
         }
     }

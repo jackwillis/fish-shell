@@ -4,17 +4,20 @@ use super::prelude::*;
 use crate::common::escape;
 use crate::common::read_blocked;
 use crate::common::scoped_push;
+use crate::common::scoped_push_replacer;
 use crate::common::str2wcstring;
 use crate::common::unescape_string;
 use crate::common::valid_var_name;
 use crate::common::ScopeGuard;
 use crate::common::ScopeGuarding;
 use crate::common::UnescapeStringStyle;
+use crate::common::EMPTY_STRING;
 use crate::compat::MB_CUR_MAX;
 use crate::env::EnvMode;
 use crate::env::Environment;
 use crate::env::READ_BYTE_LIMIT;
 use crate::env::{EnvVar, EnvVarFlags};
+use crate::ffi;
 use crate::proc::JobControl::interactive;
 use crate::reader::ReaderConfig;
 use crate::reader::{reader_pop, reader_push, reader_readline};
@@ -242,15 +245,19 @@ fn read_interactive(
 
     // Keep in-memory history only.
     reader_push(parser, L!(""), conf);
-    let parser = scoped_push(
+    ffi::commandline_set_buffer_ffi(&commandline.to_ffi(), usize::MAX);
+    let parser = scoped_push_replacer(
         parser,
-        |parser| &mut parser.libdata_mut().pods.is_interactive,
+        |parser, new_value| {
+            std::mem::replace(&mut parser.libdata_mut().pods.is_interactive, new_value)
+        },
         true,
     );
 
     let mline = reader_readline(nchars);
-    let parser = ScopeGuarding::commit(parser);
-    if let Some(buff) = mline {
+    let _parser = ScopeGuarding::commit(parser);
+    if let Some(line) = mline {
+        *buff = line;
         if nchars > 0 && nchars < buff.len() {
             // Line may be longer than nchars if a keybinding used `commandline -i`
             // note: we're deliberately throwing away the tail of the commandline.
@@ -275,7 +282,7 @@ const READ_CHUNK_SIZE: usize = 128;
 /// of chars.
 ///
 /// Returns an exit status.
-fn read_in_chunks(fd: RawFd, buff: &WString, split_null: bool, do_seek: bool) -> Option<c_int> {
+fn read_in_chunks(fd: RawFd, buff: &mut WString, split_null: bool, do_seek: bool) -> Option<c_int> {
     let mut exit_res = STATUS_CMD_OK;
     let mut narrow_buff = vec![];
     let mut eof = false;
@@ -304,7 +311,7 @@ fn read_in_chunks(fd: RawFd, buff: &WString, split_null: bool, do_seek: bool) ->
                 && unsafe {
                     libc::lseek(
                         fd,
-                        (bytes_consumed - bytes_read + 1) as i64, // cast is historic behavior
+                        (bytes_consumed as isize - (bytes_read as isize) + 1) as i64,
                         SEEK_CUR,
                     )
                 } == -1
@@ -358,12 +365,14 @@ fn read_one_char_at_a_time(
                 res = char::from(b);
                 finished = true;
             } else {
-                let sz = mbrtowc(
-                    std::ptr::addr_of_mut!(res).cast(),
-                    std::ptr::addr_of!(b).cast(),
-                    1,
-                    &mut state,
-                ) as isize;
+                let sz = unsafe {
+                    mbrtowc(
+                        std::ptr::addr_of_mut!(res).cast(),
+                        std::ptr::addr_of!(b).cast(),
+                        1,
+                        &mut state,
+                    )
+                } as isize;
                 if sz == -1 {
                     state = zero_mbstate();
                 } else if sz != -2 {
@@ -402,7 +411,7 @@ fn read_one_char_at_a_time(
 /// Validate the arguments given to `read` and provide defaults where needed.
 fn validate_read_args(
     cmd: &wstr,
-    opts: &Options,
+    opts: &mut Options,
     argv: &[WString],
     parser: &Parser,
     streams: &mut IoStreams,
@@ -532,9 +541,9 @@ fn validate_read_args(
 /// The read builtin. Reads from stdin and stores the values in environment variables.
 pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) -> Option<c_int> {
     let mut buff = WString::new();
-    let mut exit_res = STATUS_CMD_OK;
+    let mut exit_res;
 
-    let (opts, optind) = match parse_cmd_opts(args, parser, streams) {
+    let (mut opts, optind) = match parse_cmd_opts(args, parser, streams) {
         Ok(res) => res,
         Err(retval) => return retval,
     };
@@ -554,7 +563,7 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
         return STATUS_CMD_OK;
     }
 
-    let retval = validate_read_args(cmd, &opts, argv, parser, streams);
+    let retval = validate_read_args(cmd, &mut opts, argv, parser, streams);
     if retval != STATUS_CMD_OK {
         return retval;
     }
@@ -575,11 +584,11 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
     }
 
     let mut var_ptr = 0;
-    let vars_left = || argc - var_ptr;
-    let clear_remaining_vars = || {
-        while vars_left() != 0 {
-            parser.vars().set_empty(&argv[var_ptr].clone(), opts.place);
-            var_ptr += 1;
+    let vars_left = |var_ptr: usize| argc - var_ptr;
+    let clear_remaining_vars = |var_ptr: &mut usize| {
+        while vars_left(*var_ptr) != 0 {
+            parser.vars().set_empty(&argv[*var_ptr].clone(), opts.place);
+            *var_ptr += 1;
         }
     };
 
@@ -598,7 +607,7 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
                 opts.nchars,
                 opts.shell,
                 opts.silent,
-                &opts.prompt.unwrap_or_default(),
+                opts.prompt.as_ref().unwrap_or(&EMPTY_STRING),
                 &opts.right_prompt,
                 &opts.commandline,
                 streams.stdin_fd,
@@ -631,7 +640,7 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
         }
 
         if exit_res != STATUS_CMD_OK {
-            clear_remaining_vars();
+            clear_remaining_vars(&mut var_ptr);
             return exit_res;
         }
 
@@ -657,7 +666,7 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
                 parser.set_var_and_fire(&argv[var_ptr], opts.place, tokens);
                 var_ptr += 1;
             } else {
-                while vars_left() - 1 > 0 {
+                while vars_left(var_ptr) - 1 > 0 {
                     let Some(t) = tok.next() else {
                         break;
                     };
@@ -681,26 +690,30 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
             continue;
         }
 
-        opts.delimiter.or_else(|| {
-            let ifs = parser.vars().get_unless_empty(L!("IFS"));
-            ifs.map(|ifs| ifs.as_string())
-        });
-        let delimiter = opts.delimiter.unwrap_or_default();
+        // todo!("later: don't clone")
+        let delimiter = opts
+            .delimiter
+            .clone()
+            .or_else(|| {
+                let ifs = parser.vars().get_unless_empty(L!("IFS"));
+                ifs.map(|ifs| ifs.as_string())
+            })
+            .unwrap_or_default();
 
         if delimiter.is_empty() {
             // Every character is a separate token with one wrinkle involving non-array mode where
             // the final var gets the remaining characters as a single string.
             let x = 1.max(buff.len());
-            let n_splits = if opts.array || vars_left() > x {
+            let n_splits = if opts.array || vars_left(var_ptr) > x {
                 x
             } else {
-                vars_left()
+                vars_left(var_ptr)
             };
             let mut chars = vec![];
+            chars.reserve(n_splits);
 
-            let mut i = 0;
             for (i, c) in buff.chars().enumerate() {
-                if opts.array || i + 1 < vars_left() {
+                if opts.array || i + 1 < vars_left(var_ptr) {
                     chars.push(WString::from_chars([c]));
                 } else {
                     chars.push(buff[i..].to_owned());
@@ -724,26 +737,23 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
             // The user has requested the input be split into a sequence of tokens and all the
             // tokens assigned to a single var. How we do the tokenizing depends on whether the user
             // specified the delimiter string or we're using IFS.
-            match opts.delimiter.as_ref() {
-                None => {
-                    // We're using IFS, so tokenize the buffer using each IFS char. This is for backward
-                    // compatibility with old versions of fish.
-                    let tokens = split_string_tok(&buff, L!(""), None)
-                        .into_iter()
-                        .map(|s| s.to_owned())
-                        .collect();
-                    parser.set_var_and_fire(&argv[var_ptr], opts.place, tokens);
-                    var_ptr += 1;
-                }
-                Some(s) => {
-                    // We're using a delimiter provided by the user so use the `string split` behavior.
-                    let splits = split_about(&buff, &delimiter, usize::MAX, false)
-                        .into_iter()
-                        .map(|s| s.to_owned())
-                        .collect();
-                    parser.set_var_and_fire(&argv[var_ptr], opts.place, splits);
-                    var_ptr += 1;
-                }
+            if opts.delimiter.is_none() {
+                // We're using IFS, so tokenize the buffer using each IFS char. This is for backward
+                // compatibility with old versions of fish.
+                let tokens = split_string_tok(&buff, &delimiter, None)
+                    .into_iter()
+                    .map(|s| s.to_owned())
+                    .collect();
+                parser.set_var_and_fire(&argv[var_ptr], opts.place, tokens);
+                var_ptr += 1;
+            } else {
+                // We're using a delimiter provided by the user so use the `string split` behavior.
+                let splits = split_about(&buff, &delimiter, usize::MAX, false)
+                    .into_iter()
+                    .map(|s| s.to_owned())
+                    .collect();
+                parser.set_var_and_fire(&argv[var_ptr], opts.place, splits);
+                var_ptr += 1;
             }
         } else {
             // Not array mode. Split the input into tokens and assign each to the vars in sequence.
@@ -751,12 +761,13 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
                 // We're using IFS, so tokenize the buffer using each IFS char. This is for backward
                 // compatibility with old versions of fish.
                 // Note the final variable gets any remaining text.
-                let mut var_vals: Vec<WString> = split_string_tok(&buff, L!(""), Some(vars_left()))
-                    .into_iter()
-                    .map(|s| s.to_owned())
-                    .collect();
+                let mut var_vals: Vec<WString> =
+                    split_string_tok(&buff, L!(""), Some(vars_left(var_ptr)))
+                        .into_iter()
+                        .map(|s| s.to_owned())
+                        .collect();
                 let mut val_idx = 0;
-                while vars_left() != 0 {
+                while vars_left(var_ptr) != 0 {
                     let mut val = WString::new();
                     if val_idx < var_vals.len() {
                         std::mem::swap(&mut val, &mut var_vals[val_idx]);
@@ -770,7 +781,7 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
                 // We're making at most argc - 1 splits so the last variable
                 // is set to the remaining string.
                 let splits = split_about(&buff, &delimiter, argc - 1, false);
-                assert!(splits.len() <= vars_left());
+                assert!(splits.len() <= vars_left(var_ptr));
                 for split in splits {
                     parser.set_var_and_fire(&argv[var_ptr], opts.place, vec![split.to_owned()]);
                     var_ptr += 1;
@@ -778,14 +789,14 @@ pub fn read(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) 
             }
         }
 
-        if !opts.one_line || vars_left() == 0 {
+        if !opts.one_line || vars_left(var_ptr) == 0 {
             break;
         }
     }
 
     if !opts.array {
         // In case there were more args than splits
-        clear_remaining_vars();
+        clear_remaining_vars(&mut var_ptr);
     }
 
     exit_res

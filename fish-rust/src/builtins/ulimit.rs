@@ -1,6 +1,10 @@
 use super::prelude::*;
 
-pub fn ulimit(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) -> Option<c_int> {
+pub fn ulimit(
+    _parser: &Parser,
+    _streams: &mut IoStreams<'_>,
+    _args: &mut [WString],
+) -> Option<c_int> {
     todo!("builtin")
 }
 

@@ -628,7 +628,7 @@ impl HistoryImpl {
         }
         self.loaded_old = true;
 
-        let profiler = TimeProfiler::new("load_old");
+        let _profiler = TimeProfiler::new("load_old");
         if let Some(filename) = history_filename(&self.name, L!("")) {
             let file = AutoCloseFd::new(wopen_cloexec(&filename, O_RDONLY, 0));
             let fd = file.fd();
@@ -654,7 +654,7 @@ impl HistoryImpl {
                     }
                 }
 
-                let profiler = TimeProfiler::new("populate_from_file_contents");
+                let _profiler = TimeProfiler::new("populate_from_file_contents");
                 self.populate_from_file_contents();
             }
         }
@@ -816,7 +816,7 @@ impl HistoryImpl {
         let tmp_fd = tmp_file.fd();
         assert!(tmp_fd >= 0);
         let mut done = false;
-        for i in 0..MAX_SAVE_TRIES {
+        for _i in 0..MAX_SAVE_TRIES {
             // Open any target file, but do not lock it right away
             let mut target_fd_before = AutoCloseFd::new(wopen_cloexec(
                 &target_name,
@@ -945,7 +945,7 @@ impl HistoryImpl {
         // means the file was replaced and we have to try again.
         // Limit our max tries so we don't do this forever.
         let mut history_fd = AutoCloseFd::new(-1);
-        for i in 0..MAX_SAVE_TRIES {
+        for _i in 0..MAX_SAVE_TRIES {
             let fd = AutoCloseFd::new(wopen_cloexec(&history_path, O_WRONLY | O_APPEND, 0));
             if !fd.is_valid() {
                 // can't open, we're hosed
@@ -1095,7 +1095,7 @@ impl HistoryImpl {
         *countdown_to_vacuum -= 1;
 
         // This might be a good candidate for moving to a background thread.
-        let profiler = TimeProfiler::new(if vacuum {
+        let _profiler = TimeProfiler::new(if vacuum {
             "save vacuum"
         } else {
             "save no vacuum"
@@ -1483,7 +1483,7 @@ impl HistoryImpl {
 
 // Returns the fd of an opened temporary file, or None on failure.
 fn create_temporary_file(name_template: &wstr) -> Option<(AutoCloseFd, WString)> {
-    for attempt in 0..10 {
+    for _attempt in 0..10 {
         let narrow_str = wcs2zstring(name_template);
         let (fd, narrow_str) = fish_mkstemp_cloexec(narrow_str);
         let out_fd = AutoCloseFd::new(fd);

@@ -189,13 +189,13 @@ macro_rules! FLOG {
 }
 
 macro_rules! FLOGF {
-    ($category:ident, $fmt: expr, $($elem:expr),+ $(,)*) => {
+    ($category:ident, $fmt:expr $(, $elem:expr)* $(,)*) => {
         crate::flog::FLOG!($category, crate::wutil::sprintf!($fmt, $($elem),*))
     }
 }
 
 macro_rules! FLOGF_SAFE {
-    ($category:ident, $($elem:expr),+ $(,)*) => {
+    ($category:ident, $fmt:expr $(, $elem:expr)* $(,)*) => {
         if crate::flog::categories::$category
             .enabled
             .load(std::sync::atomic::Ordering::Relaxed)

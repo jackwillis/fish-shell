@@ -79,8 +79,6 @@ pub fn bg(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]) ->
     }
 
     // The user specified at least one job to be backgrounded.
-    let mut pids: Vec<pid_t> = Vec::new();
-
     // If one argument is not a valid pid (i.e. integer >= 0), fail without backgrounding anything,
     // but still print errors for all of them.
     let mut retval = STATUS_CMD_OK;

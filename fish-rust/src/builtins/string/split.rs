@@ -195,7 +195,7 @@ impl<'args> StringSubCommand<'args> for Split<'args> {
         });
         for (arg, _) in argiter {
             let splits: Vec<WString> = match (self.split_from, arg) {
-                (Direction::Right, mut arg) => {
+                (Direction::Right, arg) => {
                     let mut rev = arg;
                     rev.as_char_slice_mut().reverse();
                     let sep: WString = sep.chars().rev().collect();

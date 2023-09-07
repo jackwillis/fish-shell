@@ -595,3 +595,7 @@ bool universal_notifier_t::notification_fd_became_readable(int fd) {
     UNUSED(fd);
     return false;
 }
+
+void env_universal_notifier_t_default_notifier_post_notification_ffi() {
+    return universal_notifier_t::default_notifier().post_notification();
+}

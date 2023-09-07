@@ -4,7 +4,8 @@
 
 use crate::ast;
 use crate::common::{
-    escape, fputws, redirect_tty_output, scoped_push, scoped_push_replacer, timef, Timepoint,
+    cstr2wcstring, escape, fputws, redirect_tty_output, scoped_push, scoped_push_replacer, timef,
+    Timepoint,
 };
 use crate::compat::cur_term;
 use crate::env::Statuses;
@@ -338,7 +339,7 @@ impl TtyTransfer {
 
     /// Reclaim the tty if we transferred it.
     pub fn reclaim(&mut self) {
-        if let Some(owner) = self.owner.as_ref() {
+        if self.owner.is_some() {
             FLOG!(proc_pgroup, "fish reclaiming terminal");
             if unsafe { libc::tcsetpgrp(STDIN_FILENO, libc::getpgrp()) } == -1 {
                 FLOG!(warning, "Could not return shell to foreground");
@@ -445,7 +446,7 @@ impl TtyTransfer {
                 return true;
             }
 
-            let mut pgroup_terminated;
+            let pgroup_terminated;
             if errno::errno().0 == EINVAL {
                 // OS X returns EINVAL if the process group no longer lives. Probably other OSes,
                 // too. Unlike EPERM below, EINVAL can only happen if the process group has
@@ -1055,7 +1056,11 @@ impl Job {
         if let Some(pgid) = self.group().get_pgid() {
             if unsafe { libc::killpg(pgid, signal) } == -1 {
                 let strsignal = unsafe { CString::from_raw(libc::strsignal(signal)) };
-                wperror(&sprintf!("killpg(%d, %s)", pgid));
+                wperror(&sprintf!(
+                    "killpg(%d, %s)",
+                    pgid,
+                    cstr2wcstring(strsignal.as_bytes())
+                ));
             }
         } else {
             // This job lives in fish's pgroup and we need to signal procs individually.

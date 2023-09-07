@@ -1,11 +1,4 @@
-// TODO
-#![allow(unused_variables)]
-#![allow(unused_macros)]
-#![allow(unused_imports)]
-#![allow(unused_mut)]
-#![allow(unreachable_code)]
-#![allow(clippy::diverging_sub_expression)]
-//
+#![allow(unused_imports)] // todo!("later:")
 #![allow(non_camel_case_types)]
 #![allow(dead_code)]
 #![allow(non_upper_case_globals)]

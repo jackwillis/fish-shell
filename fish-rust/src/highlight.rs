@@ -412,14 +412,14 @@ fn color_variable(inp: &wstr, colors: &mut [HighlightSpec]) -> usize {
 
     // Handle a slice, up to dollar_count of them. Note that we currently don't do any validation of
     // the slice's contents, e.g. $foo[blah] will not show an error even though it's invalid.
-    for slice_count in 0..dollar_count {
+    for _slice_count in 0..dollar_count {
         match parse_util_slice_length(&inp[idx..]) {
             Some(slice_len) if slice_len > 0 => {
                 let slice_len = slice_len as usize;
                 colors[idx] = HighlightSpec::with_fg(HighlightRole::operat);
                 idx += slice_len;
             }
-            Some(slice_len) => {
+            Some(_slice_len) => {
                 // not a slice
                 break;
             }
@@ -532,7 +532,7 @@ fn color_string_internal(buffstr: &wstr, base_color: HighlightSpec, colors: &mut
                         }
 
                         // Consume
-                        for i in 0..chars {
+                        for _i in 0..chars {
                             if in_pos == buff_len {
                                 break;
                             }
@@ -1143,7 +1143,7 @@ impl<'s> Highlighter<'s> {
         }
         // Underline every valid path.
         let mut is_valid_path = false;
-        let mut at_cursor = self
+        let at_cursor = self
             .cursor
             .map_or(false, |c| arg.source_range().contains_inclusive(c));
         if cmd_is_cd {
@@ -1337,9 +1337,9 @@ impl<'s> Highlighter<'s> {
 
         // Color the command's source code.
         // If we get no source back, there's nothing to color.
-        let Some(command_range) = stmt.command.try_source_range() else {
+        if stmt.command.try_source_range().is_none() {
             return;
-        };
+        }
         let cmd = stmt.command.source(self.buff);
 
         let mut expanded_cmd = WString::new();

@@ -109,11 +109,10 @@ trait StringSubCommand<'args> {
         &mut self,
         parser: &Parser,
         streams: &mut IoStreams<'_>,
-        subcmd_name: &'args wstr,
         w: &'args mut wgetopter_t<'static, 'args>,
     ) -> Option<c_int> {
         if w.argv().len() >= 2 && (w.argv()[1] == "-h" || w.argv()[1] == "--help") {
-            let string_dash_subcmd = WString::from(subcmd_name) + L!("-") + &w.argv()[0][..];
+            let string_dash_subcmd = w.argv()[0].clone() + L!("-") + &w.argv()[0][..];
             builtin_print_help(parser, streams, &string_dash_subcmd);
             return STATUS_CMD_OK;
         }
@@ -139,6 +138,7 @@ trait StringSubCommand<'args> {
 }
 
 /// This covers failing argument/option parsing
+#[derive(Debug)]
 enum StringError {
     InvalidArgs(WString),
     NotANumber,
@@ -311,11 +311,10 @@ pub fn string(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]
         return STATUS_CMD_OK;
     }
 
-    let (cmd_names, args) = args.split_at_mut(2);
-    let cmd = &cmd_names[0];
-    let subcmd_name = &cmd_names[1];
+    let (cmd, args) = args.split_at_mut(1);
+    let cmd = &cmd[0];
 
-    let mut subcmd: Box<dyn StringSubCommand<'_>> = match subcmd_name.to_string().as_str() {
+    let mut subcmd: Box<dyn StringSubCommand<'_>> = match args[0].to_string().as_str() {
         "collect" => Box::new(collect::Collect::default()),
         "escape" => Box::new(escape::Escape::default()),
         "join" => Box::new(join::Join::default()),
@@ -350,13 +349,13 @@ pub fn string(parser: &Parser, streams: &mut IoStreams<'_>, args: &mut [WString]
         _ => {
             streams
                 .err
-                .append(&wgettext_fmt!(BUILTIN_ERR_INVALID_SUBCMD, cmd, subcmd_name));
+                .append(&wgettext_fmt!(BUILTIN_ERR_INVALID_SUBCMD, cmd, args[0]));
             builtin_print_error_trailer(parser, streams.err, cmd);
             return STATUS_INVALID_ARGS;
         }
     };
     let mut w = wgetopter_t::new(subcmd.short_options(), subcmd.long_options(), args);
-    let result = subcmd.run(parser, streams, subcmd_name, &mut w);
+    let result = subcmd.run(parser, streams, &mut w);
     drop(subcmd);
     result
 }

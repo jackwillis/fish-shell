@@ -39,7 +39,7 @@ impl<'args> StringSubCommand<'args> for Match<'args> {
         L!(":aegivqrn")
     }
 
-    fn parse_opt(&mut self, w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
+    fn parse_opt(&mut self, _w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
         match c {
             'a' => self.all = true,
             'e' => self.entire = true,

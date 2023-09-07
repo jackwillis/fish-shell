@@ -155,7 +155,7 @@ pub fn expand_string(
     ctx: &OperationContext,
     errors: Option<&mut ParseErrorList>,
 ) -> ExpandResult {
-    let mut completions = vec![];
+    let completions = vec![];
     let mut recv = CompletionReceiver::from_list(completions, ctx.expansion_limit);
     let result = expand_to_receiver(input, &mut recv, flags, ctx, errors);
     *out_completions = recv.take();
@@ -509,7 +509,7 @@ fn parse_slice(
                     pos += end;
                     tmp
                 }
-                Err(error) => {
+                Err(_error) => {
                     // We don't test `*end` as is typically done because we expect it to not
                     // be the null char. Ignore the case of errno==-1 because it means the end
                     // char wasn't the null char.
@@ -545,8 +545,8 @@ fn parse_slice(
                         pos += end;
                         tmp
                     }
-                    Err(error) => {
-                        return Err((pos, ParseSliceError::zero_index));
+                    Err(_error) => {
+                        return Err((pos, ParseSliceError::invalid_index));
                     }
                 }
             };
@@ -1081,7 +1081,7 @@ pub fn expand_cmdsubst(
     }
 
     let _ = expand_cmdsubst(tail, ctx, &mut tail_expand_recv, errors); // TODO: offset error locations
-    let mut tail_expand = tail_expand_recv.take();
+    let tail_expand = tail_expand_recv.take();
 
     // Combine the result of the current command substitution with the result of the recursive tail
     // expansion.
@@ -1597,9 +1597,7 @@ crate::ffi_tests::add_test!("test_expand", || {
     /// message to print if the test fails.
     fn expand_test(input: &wstr, flags: ExpandFlags, expected: Vec<WString>, failure_msg: &wstr) {
         let mut output = CompletionList::new();
-        let mut res = true;
         let mut errors = ParseErrorList::new();
-        let mut pwd = PwdEnvironment::default();
         let mut ctx = OperationContext::foreground(
             Parser::principal_parser().shared(),
             Box::new(|| no_cancel()),

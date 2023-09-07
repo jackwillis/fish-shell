@@ -13,7 +13,7 @@ impl StringSubCommand<'_> for Transform {
     fn short_options(&self) -> &'static wstr {
         L!(":q")
     }
-    fn parse_opt(&mut self, w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
+    fn parse_opt(&mut self, _w: &mut wgetopter_t<'_, '_>, c: char) -> Result<(), StringError> {
         match c {
             'q' => self.quiet = true,
             _ => return Err(StringError::UnknownOption),

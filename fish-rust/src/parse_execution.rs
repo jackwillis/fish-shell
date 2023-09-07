@@ -143,7 +143,7 @@ impl<'a> ParseExecutionContext {
             cancel_signal: RefCell::default(),
             executing_job_node: RefCell::default(),
             cached_lineno: RefCell::new(0..0),
-            block_io: RefCell::default(),
+            block_io: RefCell::new(block_io),
         }
     }
 
@@ -278,7 +278,7 @@ impl<'a> ParseExecutionContext {
             return Some(EndExecutionReason::control_flow);
         }
         if ld.loop_status != LoopStatus::normals {
-            return Some(EndExecutionReason::cancelled);
+            return Some(EndExecutionReason::control_flow);
         }
         None
     }
@@ -459,35 +459,34 @@ impl<'a> ParseExecutionContext {
         let job = &jc.job;
 
         // Helper to return if a statement is infinitely recursive in this function.
-        let mut statement_recurses =
-            |stat: &'b ast::Statement| -> Option<&'b ast::DecoratedStatement> {
-                // Ignore non-decorated statements like `if`, etc.
-                let StatementVariant::DecoratedStatement(dc) = &*stat.contents else {
-                    return None;
-                };
-
-                // Ignore statements with decorations like 'builtin' or 'command', since those
-                // are not infinite recursion. In particular that is what enables 'wrapper functions'.
-                if dc.decoration() != StatementDecoration::none {
-                    return None;
-                }
-
-                // Check the command.
-                let mut cmd = self.node_source(&dc.command);
-                let forbidden = !cmd.is_empty()
-                    && expand_one(
-                        &mut cmd,
-                        ExpandFlags::SKIP_CMDSUBST | ExpandFlags::SKIP_VARIABLES,
-                        ctx,
-                        None,
-                    )
-                    && &cmd == forbidden_function_name;
-                if forbidden {
-                    Some(dc)
-                } else {
-                    None
-                }
+        let statement_recurses = |stat: &'b ast::Statement| -> Option<&'b ast::DecoratedStatement> {
+            // Ignore non-decorated statements like `if`, etc.
+            let StatementVariant::DecoratedStatement(dc) = &*stat.contents else {
+                return None;
             };
+
+            // Ignore statements with decorations like 'builtin' or 'command', since those
+            // are not infinite recursion. In particular that is what enables 'wrapper functions'.
+            if dc.decoration() != StatementDecoration::none {
+                return None;
+            }
+
+            // Check the command.
+            let mut cmd = self.node_source(&dc.command);
+            let forbidden = !cmd.is_empty()
+                && expand_one(
+                    &mut cmd,
+                    ExpandFlags::SKIP_CMDSUBST | ExpandFlags::SKIP_VARIABLES,
+                    ctx,
+                    None,
+                )
+                && &cmd == forbidden_function_name;
+            if forbidden {
+                Some(dc)
+            } else {
+                None
+            }
+        };
 
         // Check main statement.
         let infinite_recursive_statement = statement_recurses(&jc.job.statement)
@@ -797,7 +796,11 @@ impl<'a> ParseExecutionContext {
                     }
                     return self.handle_command_not_found(
                         ctx,
-                        &external_cmd.path,
+                        if external_cmd.path.is_empty() {
+                            &cmd
+                        } else {
+                            &external_cmd.path
+                        },
                         statement,
                         std::io::Error::from_raw_os_error(external_cmd.err.unwrap().into()),
                     );
@@ -899,12 +902,14 @@ impl<'a> ParseExecutionContext {
         match &**bh {
             BlockStatementHeaderVariant::ForHeader(fh) => self.run_for_statement(ctx, fh, contents),
             BlockStatementHeaderVariant::WhileHeader(wh) => {
-                self.run_while_statement(ctx, wh, contents, None)
+                self.run_while_statement(ctx, wh, contents, associated_block)
             }
             BlockStatementHeaderVariant::FunctionHeader(fh) => {
                 self.run_function_statement(ctx, statement, fh)
             }
-            BlockStatementHeaderVariant::BeginHeader(bh) => self.run_begin_statement(ctx, contents),
+            BlockStatementHeaderVariant::BeginHeader(_bh) => {
+                self.run_begin_statement(ctx, contents)
+            }
             BlockStatementHeaderVariant::None => panic!(),
         }
     }
@@ -1023,7 +1028,7 @@ impl<'a> ParseExecutionContext {
         let mut if_clause = &statement.if_clause;
 
         // Index of the *next* elseif_clause to test.
-        let mut elseif_clauses = &statement.elseif_clauses;
+        let elseif_clauses = &statement.elseif_clauses;
         let mut next_elseif_idx = 0;
 
         // We start with the 'if'.
@@ -1545,7 +1550,7 @@ impl<'a> ParseExecutionContext {
         );
 
         // Save the node index.
-        let mut zelf = scoped_push_replacer(
+        let zelf = scoped_push_replacer(
             self,
             |zelf, new_value| {
                 std::mem::replace(&mut zelf.executing_job_node.borrow_mut(), new_value)
@@ -1554,7 +1559,7 @@ impl<'a> ParseExecutionContext {
         );
 
         // Profiling support.
-        let mut profile_id = ctx.parser().create_profile_item();
+        let profile_id = ctx.parser().create_profile_item();
         let start_time = if profile_id.is_some() {
             ProfileItem::now()
         } else {
@@ -1568,7 +1573,7 @@ impl<'a> ParseExecutionContext {
         if zelf.job_is_simple_block(job_node) {
             let do_time = job_node.time.is_some();
             // If no-exec has been given, there is nothing to time.
-            let timer = push_timer(do_time && !no_exec());
+            let _timer = push_timer(do_time && !no_exec());
             let mut block = None;
             let mut result =
                 zelf.apply_variable_assignments(&mut ctx, None, &job_node.variables, &mut block);
@@ -1604,7 +1609,7 @@ impl<'a> ParseExecutionContext {
             if let Some(profile_id) = profile_id {
                 let parser = ctx.parser();
                 let mut profile_items = parser.profile_items_mut();
-                let mut profile_item = &mut profile_items[profile_id];
+                let profile_item = &mut profile_items[profile_id];
                 profile_item.duration = ProfileItem::now() - start_time;
                 profile_item.level = eval_level;
                 profile_item.cmd =
@@ -1654,7 +1659,7 @@ impl<'a> ParseExecutionContext {
         // will have been printed.
         let pop_result =
             zelf.populate_job_from_job_node(&mut ctx, &mut job, job_node, associated_block);
-        let mut zelf = ScopeGuarding::commit(zelf);
+        let zelf = ScopeGuarding::commit(zelf);
 
         // Clean up the job on failure or cancellation.
         if pop_result == EndExecutionReason::ok {
@@ -1699,7 +1704,7 @@ impl<'a> ParseExecutionContext {
         if let Some(profile_id) = profile_id {
             let parser = ctx.parser();
             let mut profile_items = parser.profile_items_mut();
-            let mut profile_item = &mut profile_items[profile_id];
+            let profile_item = &mut profile_items[profile_id];
             profile_item.duration = ProfileItem::now() - start_time;
             profile_item.level = ctx.parser().eval_level.load(Ordering::Relaxed);
             profile_item.cmd = job.command().to_owned();
@@ -1758,7 +1763,7 @@ impl<'a> ParseExecutionContext {
                 return result;
             }
             if let Some(reason) = self.check_end_execution(ctx) {
-                return result;
+                return reason;
             }
             // Check the conjunction type.
             let last_status = ctx.parser().get_last_status();
@@ -1850,7 +1855,7 @@ impl<'a> ParseExecutionContext {
                 if parsed_pipe.stderr_merge {
                     // This was a pipe like &| which redirects both stdout and stderr.
                     // Also redirect stderr to stdout.
-                    let mut specs = proc.redirection_specs_mut();
+                    let specs = proc.redirection_specs_mut();
                     specs.push(get_stderr_merge());
                 }
             }
